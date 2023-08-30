@@ -10,7 +10,6 @@ pub(super) fn datetime(
     s: &[Series],
     time_unit: &TimeUnit,
     time_zone: Option<&str>,
-    use_earliest: Option<bool>,
 ) -> PolarsResult<Series> {
     use polars_core::export::chrono::NaiveDate;
     use polars_core::utils::CustomIterTools;
@@ -22,6 +21,7 @@ pub(super) fn datetime(
     let minute = &s[4];
     let second = &s[5];
     let microsecond = &s[6];
+    let ambiguous = &s[7];
 
     let max_len = s.iter().map(|s| s.len()).max().unwrap();
 
@@ -66,6 +66,11 @@ pub(super) fn datetime(
         microsecond = microsecond.new_from_index(0, max_len);
     }
     let microsecond = microsecond.u32()?;
+    let mut _ambiguous = ambiguous.cast(&DataType::Utf8)?;
+    if _ambiguous.len() < max_len {
+        _ambiguous = _ambiguous.new_from_index(0, max_len);
+    }
+    let _ambiguous = _ambiguous.utf8()?;
 
     let ca: Int64Chunked = year
         .into_iter()
@@ -96,16 +101,16 @@ pub(super) fn datetime(
         #[cfg(feature = "timezones")]
         Some(_) => {
             let mut ca = ca.into_datetime(*time_unit, None);
-            ca = replace_time_zone(&ca, time_zone, use_earliest)?;
+            ca = replace_time_zone(&ca, time_zone, _ambiguous)?;
             ca
-        }
+        },
         _ => {
             polars_ensure!(
-                time_zone.is_none() && use_earliest.is_none(),
-                ComputeError: "cannot make use of the `time_zone` and `use_earliest` arguments without the 'timezones' feature enabled."
+                time_zone.is_none(),
+                ComputeError: "cannot make use of the `time_zone` argument without the 'timezones' feature enabled."
             );
             ca.into_datetime(*time_unit, None)
-        }
+        },
     };
 
     let mut s = ca.into_series();
@@ -123,7 +128,7 @@ pub(super) fn date_offset(s: Series, offset: Duration) -> PolarsResult<Series> {
                 .unwrap();
             preserve_sortedness = true;
             date_offset(s, offset).and_then(|s| s.cast(&DataType::Date))
-        }
+        },
         DataType::Datetime(tu, tz) => {
             let ca = s.datetime().unwrap();
 
@@ -140,11 +145,11 @@ pub(super) fn date_offset(s: Series, offset: Duration) -> PolarsResult<Series> {
                 Some(ref tz) => {
                     let offset_fn = offset_fn(tu);
                     ca.0.try_apply(|v| offset_fn(&offset, v, tz.parse::<Tz>().ok().as_ref()))
-                }
+                },
                 _ => {
                     let offset_fn = offset_fn(tu);
                     ca.0.try_apply(|v| offset_fn(&offset, v, None))
-                }
+                },
             }?;
             // Sortedness may not be preserved when crossing daylight savings time boundaries
             // for calendar-aware durations.
@@ -152,7 +157,7 @@ pub(super) fn date_offset(s: Series, offset: Duration) -> PolarsResult<Series> {
             preserve_sortedness =
                 tz.is_none() || tz.as_deref() == Some("UTC") || offset.is_constant_duration();
             out.cast(&DataType::Datetime(tu, tz))
-        }
+        },
         dt => polars_bail!(
             ComputeError: "cannot use 'date_offset' on Series of datatype {}", dt,
         ),
@@ -176,7 +181,7 @@ pub(super) fn combine(s: &[Series], tu: TimeUnit) -> PolarsResult<Series> {
         DataType::Datetime(_, tz) => tz.as_ref(),
         _dtype => {
             polars_bail!(ComputeError: format!("expected Date or Datetime, got {}", _dtype))
-        }
+        },
     };
 
     let date = date.cast(&DataType::Date)?;
@@ -189,7 +194,7 @@ pub(super) fn combine(s: &[Series], tu: TimeUnit) -> PolarsResult<Series> {
         Some(tz) => Ok(polars_ops::prelude::replace_time_zone(
             result_naive.datetime().unwrap(),
             Some(tz),
-            None,
+            &Utf8Chunked::from_iter(std::iter::once("raise")),
         )?
         .into()),
         _ => Ok(result_naive),
@@ -228,7 +233,7 @@ pub(super) fn temporal_range_dispatch(
             } else {
                 DataType::Datetime(TimeUnit::Microseconds, None)
             }
-        }
+        },
         (DataType::Time, _) => DataType::Time,
         // overwrite nothing, keep as-is
         (DataType::Datetime(_, _), None) => start.dtype().clone(),
@@ -243,7 +248,7 @@ pub(super) fn temporal_range_dispatch(
             polars_ops::prelude::replace_time_zone(
                 start.cast(&dtype)?.datetime().unwrap(),
                 None,
-                None,
+                &Utf8Chunked::from_iter(std::iter::once("raise")),
             )?
             .into_series()
             .to_physical_repr()
@@ -251,7 +256,7 @@ pub(super) fn temporal_range_dispatch(
             polars_ops::prelude::replace_time_zone(
                 stop.cast(&dtype)?.datetime().unwrap(),
                 None,
-                None,
+                &Utf8Chunked::from_iter(std::iter::once("raise")),
             )?
             .into_series()
             .to_physical_repr()
@@ -278,8 +283,124 @@ pub(super) fn temporal_range_dispatch(
         #[cfg(feature = "timezones")]
         (DataType::Datetime(tu, _), Some(tz)) => {
             dtype = DataType::Datetime(*tu, Some(tz.clone()));
-        }
-        _ => {}
+        },
+        _ => {},
+    };
+
+    let start = start.get(0).unwrap().extract::<i64>().unwrap();
+    let stop = stop.get(0).unwrap().extract::<i64>().unwrap();
+
+    let out = match dtype {
+        DataType::Date => date_range_impl(
+            name,
+            start,
+            stop,
+            every,
+            closed,
+            TimeUnit::Milliseconds,
+            None,
+        )?,
+        DataType::Datetime(tu, ref tz) => {
+            date_range_impl(name, start, stop, every, closed, tu, tz.as_ref())?
+        },
+        DataType::Time => date_range_impl(
+            name,
+            start,
+            stop,
+            every,
+            closed,
+            TimeUnit::Nanoseconds,
+            None,
+        )?,
+        _ => unimplemented!(),
+    };
+    Ok(out.cast(&dtype).unwrap().into_series())
+}
+
+pub(super) fn temporal_ranges_dispatch(
+    s: &[Series],
+    name: &str,
+    every: Duration,
+    closed: ClosedWindow,
+    time_unit: Option<TimeUnit>,
+    time_zone: Option<TimeZone>,
+) -> PolarsResult<Series> {
+    let start = &s[0];
+    let stop = &s[1];
+
+    polars_ensure!(
+        start.len() == stop.len(),
+        ComputeError: "'start' and 'stop' should have the same length",
+    );
+    const TO_MS: i64 = SECONDS_IN_DAY * 1000;
+
+    // Note: `start` and `stop` have already been cast to their supertype,
+    // so only `start`'s dtype needs to be matched against.
+    #[allow(unused_mut)] // `dtype` is mutated within a "feature = timezones" block.
+    let mut dtype = match (start.dtype(), time_unit) {
+        (DataType::Date, time_unit) => {
+            let nsecs = every.nanoseconds();
+            if nsecs == 0 {
+                DataType::Date
+            } else if let Some(tu) = time_unit {
+                DataType::Datetime(tu, None)
+            } else if nsecs % 1_000 != 0 {
+                DataType::Datetime(TimeUnit::Nanoseconds, None)
+            } else {
+                DataType::Datetime(TimeUnit::Microseconds, None)
+            }
+        },
+        (DataType::Time, _) => DataType::Time,
+        // overwrite nothing, keep as-is
+        (DataType::Datetime(_, _), None) => start.dtype().clone(),
+        // overwrite time unit, keep timezone
+        (DataType::Datetime(_, tz), Some(tu)) => DataType::Datetime(tu, tz.clone()),
+        _ => unreachable!(),
+    };
+
+    let (mut start, mut stop) = match dtype {
+        #[cfg(feature = "timezones")]
+        DataType::Datetime(_, Some(_)) => (
+            polars_ops::prelude::replace_time_zone(
+                start.cast(&dtype)?.datetime().unwrap(),
+                None,
+                &Utf8Chunked::from_iter(std::iter::once("raise")),
+            )?
+            .into_series()
+            .to_physical_repr()
+            .cast(&DataType::Int64)?,
+            polars_ops::prelude::replace_time_zone(
+                stop.cast(&dtype)?.datetime().unwrap(),
+                None,
+                &Utf8Chunked::from_iter(std::iter::once("raise")),
+            )?
+            .into_series()
+            .to_physical_repr()
+            .cast(&DataType::Int64)?,
+        ),
+        _ => (
+            start
+                .cast(&dtype)?
+                .to_physical_repr()
+                .cast(&DataType::Int64)?,
+            stop.cast(&dtype)?
+                .to_physical_repr()
+                .cast(&DataType::Int64)?,
+        ),
+    };
+
+    if dtype == DataType::Date {
+        start = &start * TO_MS;
+        stop = &stop * TO_MS;
+    }
+
+    // overwrite time zone, if specified
+    match (&dtype, &time_zone) {
+        #[cfg(feature = "timezones")]
+        (DataType::Datetime(tu, _), Some(tz)) => {
+            dtype = DataType::Datetime(*tu, Some(tz.clone()));
+        },
+        _ => {},
     };
 
     let start = start.i64().unwrap();
@@ -309,12 +430,12 @@ pub(super) fn temporal_range_dispatch(
                         let rng = rng.to_physical_repr();
                         let rng = rng.i32().unwrap();
                         builder.append_slice(rng.cont_slice().unwrap())
-                    }
+                    },
                     _ => builder.append_null(),
                 }
             }
             builder.finish().into_series()
-        }
+        },
         DataType::Datetime(tu, ref tz) => {
             let mut builder = ListPrimitiveChunkedBuilder::<Int64Type>::new(
                 name,
@@ -327,12 +448,12 @@ pub(super) fn temporal_range_dispatch(
                     (Some(start), Some(stop)) => {
                         let rng = date_range_impl("", start, stop, every, closed, tu, tz.as_ref())?;
                         builder.append_slice(rng.cont_slice().unwrap())
-                    }
+                    },
                     _ => builder.append_null(),
                 }
             }
             builder.finish().into_series()
-        }
+        },
         DataType::Time => {
             let mut builder = ListPrimitiveChunkedBuilder::<Int64Type>::new(
                 name,
@@ -353,12 +474,12 @@ pub(super) fn temporal_range_dispatch(
                             None,
                         )?;
                         builder.append_slice(rng.cont_slice().unwrap())
-                    }
+                    },
                     _ => builder.append_null(),
                 }
             }
             builder.finish().into_series()
-        }
+        },
         _ => unimplemented!(),
     };
 

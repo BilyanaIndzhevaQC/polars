@@ -55,7 +55,7 @@ pub(super) fn contains(args: &mut [Series]) -> PolarsResult<Option<Series>> {
     let list = &args[0];
     let is_in = &args[1];
 
-    is_in.is_in(list).map(|mut ca| {
+    polars_ops::prelude::is_in(is_in, list).map(|mut ca| {
         ca.rename(list.name());
         Some(ca.into_series())
     })
@@ -86,7 +86,7 @@ pub(super) fn slice(args: &mut [Series]) -> PolarsResult<Option<Series>> {
                 .extract::<usize>()
                 .unwrap_or(usize::MAX);
             return Ok(Some(list_ca.lst_slice(offset, slice_len).into_series()));
-        }
+        },
         (1, length_slice_len) => {
             check_slice_arg_shape(length_slice_len, list_ca.len(), "length")?;
             let offset = offset_s.get(0).unwrap().try_extract::<i64>()?;
@@ -103,7 +103,7 @@ pub(super) fn slice(args: &mut [Series]) -> PolarsResult<Option<Series>> {
                     _ => None,
                 })
                 .collect_trusted()
-        }
+        },
         (offset_len, 1) => {
             check_slice_arg_shape(offset_len, list_ca.len(), "offset")?;
             let length_slice = length_s
@@ -121,7 +121,7 @@ pub(super) fn slice(args: &mut [Series]) -> PolarsResult<Option<Series>> {
                     _ => None,
                 })
                 .collect_trusted()
-        }
+        },
         _ => {
             check_slice_arg_shape(offset_s.len(), list_ca.len(), "offset")?;
             check_slice_arg_shape(length_s.len(), list_ca.len(), "length")?;
@@ -140,12 +140,12 @@ pub(super) fn slice(args: &mut [Series]) -> PolarsResult<Option<Series>> {
                     |((opt_s, opt_offset), opt_length)| match (opt_s, opt_offset, opt_length) {
                         (Some(s), Some(offset), Some(length)) => {
                             Some(s.as_ref().slice(offset, length as usize))
-                        }
+                        },
                         _ => None,
                     },
                 )
                 .collect_trusted()
-        }
+        },
     };
     out.rename(s.name());
     Ok(Some(out.into_series()))
@@ -160,7 +160,7 @@ pub(super) fn concat(s: &mut [Series]) -> PolarsResult<Option<Series>> {
         None => {
             first = first.reshape(&[-1, 1]).unwrap();
             first.list().unwrap()
-        }
+        },
     }
     .clone();
 
@@ -187,7 +187,7 @@ pub(super) fn get(s: &mut [Series]) -> PolarsResult<Option<Series>> {
             } else {
                 polars_bail!(ComputeError: "unexpected null index received in `arr.get`")
             }
-        }
+        },
         len if len == ca.len() => {
             let ca = ca.rechunk();
             let arr = ca.downcast_iter().next().unwrap();
@@ -211,7 +211,7 @@ pub(super) fn get(s: &mut [Series]) -> PolarsResult<Option<Series>> {
                 .collect::<IdxCa>();
             let s = Series::try_from((ca.name(), arr.values().clone())).unwrap();
             unsafe { s.take_unchecked(&take_by) }.map(Some)
-        }
+        },
         len => polars_bail!(
             ComputeError:
             "`arr.get` expression got an index array of length {} while the list has {} elements",
@@ -258,7 +258,7 @@ pub(super) fn sum(s: &Series) -> PolarsResult<Series> {
 pub(super) fn set_operation(s: &[Series], set_type: SetOperation) -> PolarsResult<Series> {
     let s0 = &s[0];
     let s1 = &s[1];
-    Ok(list_set_operation(s0.list()?, s1.list()?, set_type).into_series())
+    list_set_operation(s0.list()?, s1.list()?, set_type).map(|ca| ca.into_series())
 }
 
 #[cfg(feature = "list_any_all")]

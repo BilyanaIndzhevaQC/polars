@@ -27,11 +27,12 @@ use num_traits::NumCast;
 use rayon::prelude::*;
 pub use series_trait::{IsSorted, *};
 
+use crate::chunked_array::Settings;
 #[cfg(feature = "rank")]
 use crate::prelude::unique::rank::rank;
 #[cfg(feature = "zip_with")]
 use crate::series::arithmetic::coerce_lhs_rhs;
-use crate::utils::{_split_offsets, split_ca, split_series, Wrap};
+use crate::utils::{_split_offsets, get_casting_failures, split_ca, split_series, Wrap};
 use crate::POOL;
 
 /// # Series
@@ -40,7 +41,7 @@ use crate::POOL;
 /// Most of the available functions are defined in the [SeriesTrait trait](crate::series::SeriesTrait).
 ///
 /// The `Series` struct consists
-/// of typed [ChunkedArray](crate::chunked_array::ChunkedArray)'s. To quickly cast
+/// of typed [ChunkedArray]'s. To quickly cast
 /// a `Series` to a `ChunkedArray` you can call the method with the name of the type:
 ///
 /// ```
@@ -186,20 +187,36 @@ impl Series {
     pub unsafe fn chunks_mut(&mut self) -> &mut Vec<ArrayRef> {
         #[allow(unused_mut)]
         let mut ca = self._get_inner_mut();
-        let chunks = ca.chunks() as *const Vec<ArrayRef> as *mut Vec<ArrayRef>;
-        // Safety
-        // ca is the owner of `chunks` and this we do not break aliasing rules
-        &mut *chunks
+        ca.chunks_mut()
+    }
+
+    pub fn is_sorted_flag(&self) -> IsSorted {
+        let flags = self.get_flags();
+        if flags.contains(Settings::SORTED_DSC) {
+            IsSorted::Descending
+        } else if flags.contains(Settings::SORTED_ASC) {
+            IsSorted::Ascending
+        } else {
+            IsSorted::Not
+        }
     }
 
     pub fn set_sorted_flag(&mut self, sorted: IsSorted) {
-        let inner = self._get_inner_mut();
-        inner._set_sorted_flag(sorted)
+        let mut flags = self.get_flags();
+        flags.set_sorted_flag(sorted);
+        self.set_flags(flags);
     }
 
     pub(crate) fn clear_settings(&mut self) {
-        let inner = self._get_inner_mut();
-        inner._clear_settings()
+        self.set_flags(Settings::empty());
+    }
+    #[allow(dead_code)]
+    pub fn get_flags(&self) -> Settings {
+        self.0._get_flags()
+    }
+
+    pub(crate) fn set_flags(&mut self, flags: Settings) {
+        self._get_inner_mut()._set_flags(flags)
     }
 
     pub fn into_frame(self) -> DataFrame {
@@ -260,7 +277,7 @@ impl Series {
                 } else {
                     Err(err)
                 }
-            }
+            },
         }
     }
 
@@ -274,21 +291,21 @@ impl Series {
             DataType::Struct(_) => {
                 let ca = self.struct_().unwrap();
                 ca.cast_unchecked(dtype)
-            }
+            },
             DataType::List(_) => {
                 let ca = self.list().unwrap();
                 ca.cast_unchecked(dtype)
-            }
+            },
             dt if dt.is_numeric() => {
                 with_match_physical_numeric_polars_type!(dt, |$T| {
                     let ca: &ChunkedArray<$T> = self.as_ref().as_ref().as_ref();
                         ca.cast_unchecked(dtype)
                 })
-            }
+            },
             DataType::Binary => {
                 let ca = self.binary().unwrap();
                 ca.cast_unchecked(dtype)
-            }
+            },
             _ => self.cast(dtype),
         }
     }
@@ -437,7 +454,7 @@ impl Series {
                         .unwrap()
                         .into_series(),
                 )
-            }
+            },
             _ => Cow::Borrowed(self),
         }
     }
@@ -630,37 +647,37 @@ impl Series {
                 Int8 | UInt8 | Int16 | UInt16 => {
                     let s = self.cast(&Int64).unwrap();
                     s.cumsum(reverse)
-                }
+                },
                 Int32 => {
                     let ca = self.i32().unwrap();
                     ca.cumsum(reverse).into_series()
-                }
+                },
                 UInt32 => {
                     let ca = self.u32().unwrap();
                     ca.cumsum(reverse).into_series()
-                }
+                },
                 UInt64 => {
                     let ca = self.u64().unwrap();
                     ca.cumsum(reverse).into_series()
-                }
+                },
                 Int64 => {
                     let ca = self.i64().unwrap();
                     ca.cumsum(reverse).into_series()
-                }
+                },
                 Float32 => {
                     let ca = self.f32().unwrap();
                     ca.cumsum(reverse).into_series()
-                }
+                },
                 Float64 => {
                     let ca = self.f64().unwrap();
                     ca.cumsum(reverse).into_series()
-                }
+                },
                 #[cfg(feature = "dtype-duration")]
                 Duration(tu) => {
                     let ca = self.to_physical_repr();
                     let ca = ca.i64().unwrap();
                     ca.cumsum(reverse).cast(&Duration(*tu)).unwrap()
-                }
+                },
                 dt => panic!("cumsum not supported for dtype: {dt:?}"),
             }
         }
@@ -684,23 +701,23 @@ impl Series {
                 Int8 | UInt8 | Int16 | UInt16 | Int32 | UInt32 => {
                     let s = self.cast(&Int64).unwrap();
                     s.cumprod(reverse)
-                }
+                },
                 Int64 => {
                     let ca = self.i64().unwrap();
                     ca.cumprod(reverse).into_series()
-                }
+                },
                 UInt64 => {
                     let ca = self.u64().unwrap();
                     ca.cumprod(reverse).into_series()
-                }
+                },
                 Float32 => {
                     let ca = self.f32().unwrap();
                     ca.cumprod(reverse).into_series()
-                }
+                },
                 Float64 => {
                     let ca = self.f64().unwrap();
                     ca.cumprod(reverse).into_series()
-                }
+                },
                 dt => panic!("cumprod not supported for dtype: {dt:?}"),
             }
         }
@@ -723,23 +740,23 @@ impl Series {
                 Int8 | UInt8 | Int16 | UInt16 | Int32 | UInt32 => {
                     let s = self.cast(&Int64).unwrap();
                     s.product()
-                }
+                },
                 Int64 => {
                     let ca = self.i64().unwrap();
                     ca.prod_as_series()
-                }
+                },
                 UInt64 => {
                     let ca = self.u64().unwrap();
                     ca.prod_as_series()
-                }
+                },
                 Float32 => {
                     let ca = self.f32().unwrap();
                     ca.prod_as_series()
-                }
+                },
                 Float64 => {
                     let ca = self.f64().unwrap();
                     ca.prod_as_series()
-                }
+                },
                 dt => panic!("cumprod not supported for dtype: {dt:?}"),
             }
         }
@@ -761,23 +778,21 @@ impl Series {
 
         match self.dtype() {
             #[cfg(feature = "dtype-struct")]
-            DataType::Struct(_) => {}
+            DataType::Struct(_) => {},
             _ => {
                 if null_count == len {
                     return Ok(Series::full_null(self.name(), len, dtype));
                 }
-            }
+            },
         }
         let s = self.0.cast(dtype)?;
         if null_count != s.null_count() {
-            let failure_mask = !self.is_null() & s.is_null();
-            let failures = self.filter_threaded(&failure_mask, false)?.unique()?;
+            let failures = get_casting_failures(self, &s)?;
             polars_bail!(
                 ComputeError:
-                "strict conversion from `{}` to `{}` failed for value(s) {}; \
+                "strict conversion from `{}` to `{}` failed for column: {}, value(s) {}; \
                 if you were trying to cast Utf8 to temporal dtypes, consider using `strptime`",
-                self.dtype(), dtype, failures.fmt_list(),
-
+                self.dtype(), dtype, s.name(), failures.fmt_list(),
             );
         } else {
             Ok(s)
@@ -902,7 +917,7 @@ impl Series {
                 } else {
                     unsafe { Cow::Borrowed(arr.deref_unchecked().value(idx as usize)) }
                 }
-            }
+            },
             av => Cow::Owned(format!("{av}")),
         };
         Ok(out)
@@ -929,16 +944,16 @@ impl Series {
             DataType::Float32 => {
                 let val = &[self.mean().map(|m| m as f32)];
                 Series::new(self.name(), val)
-            }
+            },
             dt if dt.is_numeric() || matches!(dt, DataType::Boolean) => {
                 let val = &[self.mean()];
                 Series::new(self.name(), val)
-            }
+            },
             dt @ DataType::Duration(_) => {
                 Series::new(self.name(), &[self.mean().map(|v| v as i64)])
                     .cast(dt)
                     .unwrap()
-            }
+            },
             _ => return Series::full_null(self.name(), 1, self.dtype()),
         }
     }
@@ -989,15 +1004,15 @@ impl Series {
                 RevMapping::Global(map, arr, _) => {
                     size +=
                         map.capacity() * std::mem::size_of::<u32>() * 2 + estimated_bytes_size(arr);
-                }
+                },
             },
-            _ => {}
+            _ => {},
         }
 
         size
     }
 
-    /// Packs every element into a list
+    /// Packs every element into a list.
     pub fn as_list(&self) -> ListChunked {
         let s = self.rechunk();
         let values = s.to_arrow(0);
@@ -1010,7 +1025,7 @@ impl Series {
             values,
             None,
         );
-        unsafe { ListChunked::from_chunks(s.name(), vec![Box::new(new_arr)]) }
+        ListChunked::with_chunk(s.name(), new_arr)
     }
 }
 
@@ -1055,7 +1070,7 @@ where
                         self.dtype()
                     );
                 }
-            }
+            },
         }
     }
 }

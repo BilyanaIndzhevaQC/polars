@@ -2,18 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from polars import functions as F
 from polars.series.utils import expr_dispatch
-from polars.utils._wrap import wrap_s
-from polars.utils.deprecation import (
-    deprecate_renamed_parameter,
-    issue_deprecation_warning,
-)
 
 if TYPE_CHECKING:
     from polars import Expr, Series
     from polars.polars import PySeries
     from polars.type_aliases import (
+        Ambiguous,
         PolarsDataType,
         PolarsTemporalType,
         TimeUnit,
@@ -84,6 +79,8 @@ class StringNameSpace:
         exact: bool = True,
         cache: bool = True,
         utc: bool | None = None,
+        use_earliest: bool | None = None,
+        ambiguous: Ambiguous | Series = "raise",
     ) -> Series:
         """
         Convert a Utf8 column into a Datetime column.
@@ -122,6 +119,21 @@ class StringNameSpace:
                 Offset-naive strings are parsed as ``pl.Datetime(time_unit)``,
                 and offset-aware strings are converted to
                 ``pl.Datetime(time_unit, "UTC")``.
+        use_earliest
+            Determine how to deal with ambiguous datetimes:
+
+            - ``None`` (default): raise
+            - ``True``: use the earliest datetime
+            - ``False``: use the latest datetime
+
+            .. deprecated:: 0.19.0
+                Use `ambiguous` instead
+        ambiguous
+            Determine how to deal with ambiguous datetimes:
+
+            - ``'raise'`` (default): raise
+            - ``'earliest'``: use the earliest datetime
+            - ``'latest'``: use the latest datetime
 
         Examples
         --------
@@ -171,8 +183,6 @@ class StringNameSpace:
 
         """
 
-    @deprecate_renamed_parameter("datatype", "dtype", version="0.17.3")
-    @deprecate_renamed_parameter("fmt", "format", version="0.17.3")
     def strptime(
         self,
         dtype: PolarsTemporalType,
@@ -181,7 +191,8 @@ class StringNameSpace:
         strict: bool = True,
         exact: bool = True,
         cache: bool = True,
-        utc: bool | None = None,
+        use_earliest: bool | None = None,
+        ambiguous: Ambiguous | Series = "raise",
     ) -> Series:
         """
         Convert a Utf8 column into a Date/Datetime/Time column.
@@ -206,15 +217,21 @@ class StringNameSpace:
                 data beforehand will almost certainly be more performant.
         cache
             Use a cache of unique, converted dates to apply the datetime conversion.
-        utc
-            Parse time zone aware datetimes as UTC. This may be useful if you have data
-            with mixed offsets.
+        use_earliest
+            Determine how to deal with ambiguous datetimes:
 
-            .. deprecated:: 0.18.0
-                This is now a no-op, you can safely remove it.
-                Offset-naive strings are parsed as ``pl.Datetime(time_unit)``,
-                and offset-aware strings are converted to
-                ``pl.Datetime(time_unit, "UTC")``.
+            - ``None`` (default): raise
+            - ``True``: use the earliest datetime
+            - ``False``: use the latest datetime
+
+            .. deprecated:: 0.19.0
+                Use `ambiguous` instead
+        ambiguous
+            Determine how to deal with ambiguous datetimes:
+
+            - ``'raise'`` (default): raise
+            - ``'earliest'``: use the earliest datetime
+            - ``'latest'``: use the latest datetime
 
         Notes
         -----
@@ -263,29 +280,6 @@ class StringNameSpace:
                 2001-07-08
         ]
         """
-        if utc is not None:
-            issue_deprecation_warning(
-                "The `utc` argument is now a no-op and has no effect. "
-                "You can safely remove it. "
-                "Offset-naive strings are parsed as ``pl.Datetime(time_unit)``, "
-                "and offset-aware strings are converted to "
-                '``pl.Datetime(time_unit, "UTC")``.',
-                version="0.17.15",
-            )
-        s = wrap_s(self._s)
-        return (
-            s.to_frame()
-            .select(
-                F.col(s.name).str.strptime(
-                    dtype,
-                    format,
-                    strict=strict,
-                    exact=exact,
-                    cache=cache,
-                )
-            )
-            .to_series()
-        )
 
     def to_decimal(
         self,
@@ -476,6 +470,11 @@ class StringNameSpace:
         suffix
             Suffix substring.
 
+        See Also
+        --------
+        contains : Check if string contains a substring that matches a regex.
+        starts_with : Check if string values start with a substring.
+
         Examples
         --------
         >>> s = pl.Series("fruits", ["apple", "mango", None])
@@ -488,11 +487,6 @@ class StringNameSpace:
             null
         ]
 
-        See Also
-        --------
-        contains : Check if string contains a substring that matches a regex.
-        starts_with : Check if string values start with a substring.
-
         """
 
     def starts_with(self, prefix: str | Expr) -> Series:
@@ -503,6 +497,11 @@ class StringNameSpace:
         ----------
         prefix
             Prefix substring.
+
+        See Also
+        --------
+        contains : Check if string contains a substring that matches a regex.
+        ends_with : Check if string values end with a substring.
 
         Examples
         --------
@@ -515,11 +514,6 @@ class StringNameSpace:
             false
             null
         ]
-
-        See Also
-        --------
-        contains : Check if string contains a substring that matches a regex.
-        ends_with : Check if string values end with a substring.
 
         """
 
@@ -582,6 +576,11 @@ class StringNameSpace:
             How many rows to parse to determine the schema.
             If ``None`` all rows are used.
 
+        See Also
+        --------
+        json_path_match : Extract the first match of json string with provided JSONPath
+            expression.
+
         Examples
         --------
         >>> s = pl.Series("json", ['{"a":1, "b": true}', None, '{"a":2, "b": false}'])
@@ -593,11 +592,6 @@ class StringNameSpace:
                 {null,null}
                 {2,false}
         ]
-
-        See Also
-        --------
-        json_path_match : Extract the first match of json string with provided JSONPath
-            expression.
 
         """
 
@@ -995,8 +989,6 @@ class StringNameSpace:
             Series of data type :class:`Struct` with fields of data type :class:`Utf8`.
 
         """
-        s = wrap_s(self._s)
-        return s.to_frame().select(F.col(s.name).str.splitn(by, n)).to_series()
 
     def replace(
         self, pattern: str, value: str, *, literal: bool = False, n: int = 1

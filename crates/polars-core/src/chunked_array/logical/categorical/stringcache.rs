@@ -8,7 +8,7 @@ use once_cell::sync::Lazy;
 use smartstring::{LazyCompact, SmartString};
 
 use crate::datatypes::PlIdHashMap;
-use crate::frame::groupby::hashing::HASHMAP_INIT_SIZE;
+use crate::frame::group_by::hashing::HASHMAP_INIT_SIZE;
 use crate::prelude::InitHashMaps;
 
 /// We use atomic reference counting
@@ -140,7 +140,7 @@ impl SCacheInner {
         match entry {
             RawEntryMut::Occupied(entry) => {
                 global_idx = entry.key().idx;
-            }
+            },
             RawEntryMut::Vacant(entry) => {
                 let idx = self.payloads.len() as u32;
                 let key = Key::new(h, idx);
@@ -148,7 +148,7 @@ impl SCacheInner {
 
                 // only just now we allocate the string
                 self.payloads.push(s.into());
-            }
+            },
         }
         global_idx
     }

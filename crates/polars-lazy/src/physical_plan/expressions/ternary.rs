@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use polars_arrow::utils::CustomIterTools;
-use polars_core::frame::groupby::GroupsProxy;
+use polars_core::frame::group_by::GroupsProxy;
 use polars_core::prelude::*;
 use polars_core::POOL;
 
@@ -140,7 +140,7 @@ impl PhysicalExpr for TernaryExpr {
         if !aggregation_predicate {
             // unwrap will not fail as it is not an aggregation expression.
             eprintln!(
-                "The predicate '{}' in 'when->then->otherwise' is not a valid aggregation and might produce a different number of rows than the groupby operation would. This behavior is experimental and may be subject to change", self.predicate.as_expression().unwrap()
+                "The predicate '{}' in 'when->then->otherwise' is not a valid aggregation and might produce a different number of rows than the group_by operation would. This behavior is experimental and may be subject to change", self.predicate.as_expression().unwrap()
             )
         }
         let op_mask = || self.predicate.evaluate_on_groups(df, groups, state);
@@ -179,12 +179,12 @@ impl PhysicalExpr for TernaryExpr {
                 out.rename(truthy.name());
                 ac_truthy.with_series(out, true, Some(&self.expr))?;
                 Ok(ac_truthy)
-            }
+            },
 
             // we cannot flatten a list because that changes the order, so we apply over groups
             (AggregatedList(_), NotAggregated(_)) | (NotAggregated(_), AggregatedList(_)) => {
                 finish_as_iters(ac_truthy, ac_falsy, ac_mask)
-            }
+            },
             // then:
             //     col().shift()
             // otherwise:
@@ -278,7 +278,7 @@ impl PhysicalExpr for TernaryExpr {
                     ac_truthy.with_series(out.into_series(), true, Some(&self.expr))?;
                     Ok(ac_truthy)
                 }
-            }
+            },
             // Both are or a flat series or aggregated into a list
             // so we can flatten the Series an apply the operators
             _ => {
@@ -299,8 +299,8 @@ impl PhysicalExpr for TernaryExpr {
                                 if options.is_groups_sensitive() =>
                             {
                                 has_agg = true
-                            }
-                            _ => {}
+                            },
+                            _ => {},
                         }
                     }
                     if has_arity && has_agg {
@@ -326,7 +326,7 @@ impl PhysicalExpr for TernaryExpr {
                 ac_truthy.with_series(out, false, None)?;
 
                 Ok(ac_truthy)
-            }
+            },
         }
     }
     fn as_partitioned_aggregator(&self) -> Option<&dyn PartitionedAggregation> {

@@ -19,6 +19,8 @@ use crate::prelude::*;
 use crate::series::IsSorted;
 use crate::utils::CustomIterTools;
 
+mod float_sum;
+
 /// Aggregations that return Series of unit length. Those can be used in broadcasting operations.
 pub trait ChunkAggSeries {
     /// Get the sum of the ChunkedArray as a new Series of length 1.
@@ -39,44 +41,38 @@ pub trait ChunkAggSeries {
     }
 }
 
-fn sum_float_unaligned_slice<T: NumericNative>(values: &[T]) -> T {
-    values.iter().copied().sum()
-}
-
-fn sum_float_unaligned<T: NumericNative>(array: &PrimitiveArray<T>) -> T {
-    if array.len() == 0 || array.null_count() == array.len() {
-        return T::zero();
-    }
-    array.into_iter().flatten().copied().sum()
-}
-
-/// Floating point arithmetic is non-associative.
-/// The simd chunks are determined by memory location
-/// e.g.
-///
-/// |HEAD|  - | SIMD | - |TAIL|
-///
-/// The SIMD chunks have a certain alignment and depending of the start of the buffer
-/// head and tail may have different sizes, making a sum non-deterministic for the same
-/// values but different memory locations
-fn stable_sum<T: NumericNative + NativeType>(array: &PrimitiveArray<T>) -> T
+fn sum<T: NumericNative + NativeType>(array: &PrimitiveArray<T>) -> T
 where
     T: NumericNative + NativeType,
     <T as Simd>::Simd: Add<Output = <T as Simd>::Simd>
         + compute::aggregate::Sum<T>
         + compute::aggregate::SimdOrd<T>,
 {
+    if array.null_count() == array.len() {
+        return T::default();
+    }
+
     if T::is_float() {
-        use arrow::types::simd::NativeSimd;
         let values = array.values().as_slice();
-        let (a, _, _) = <T as Simd>::Simd::align(values);
-        // we only choose SIMD path if buffer is aligned to SIMD
-        if a.is_empty() {
-            compute::aggregate::sum_primitive(array).unwrap_or(T::zero())
-        } else if array.null_count() == 0 {
-            sum_float_unaligned_slice(values)
+        let validity = array.validity().filter(|_| array.null_count() > 0);
+        if T::is_f32() {
+            let f32_values = unsafe { std::mem::transmute::<&[T], &[f32]>(values) };
+            let sum: f32 = if let Some(bitmap) = validity {
+                float_sum::f32::sum_with_validity(f32_values, bitmap) as f32 // TODO: f64?
+            } else {
+                float_sum::f32::sum(f32_values) as f32 // TODO: f64?
+            };
+            unsafe { std::mem::transmute_copy::<f32, T>(&sum) }
+        } else if T::is_f64() {
+            let f64_values = unsafe { std::mem::transmute::<&[T], &[f64]>(values) };
+            let sum: f64 = if let Some(bitmap) = validity {
+                float_sum::f64::sum_with_validity(f64_values, bitmap)
+            } else {
+                float_sum::f64::sum(f64_values)
+            };
+            unsafe { std::mem::transmute_copy::<f64, T>(&sum) }
         } else {
-            sum_float_unaligned(array)
+            unreachable!("only supported float types are f32 and f64");
         }
     } else {
         compute::aggregate::sum_primitive(array).unwrap_or(T::zero())
@@ -93,7 +89,7 @@ where
     fn sum(&self) -> Option<T::Native> {
         Some(
             self.downcast_iter()
-                .map(stable_sum)
+                .map(sum)
                 .fold(T::Native::zero(), |acc, v| acc + v),
         )
     }
@@ -109,14 +105,14 @@ where
                     // first_non_null returns in bound index
                     unsafe { self.get_unchecked(idx) }
                 })
-            }
+            },
             IsSorted::Descending => {
                 self.last_non_null().and_then(|idx| {
                     // Safety:
                     // last returns in bound index
                     unsafe { self.get_unchecked(idx) }
                 })
-            }
+            },
             IsSorted::Not => self
                 .downcast_iter()
                 .filter_map(compute::aggregate::min_primitive)
@@ -138,17 +134,17 @@ where
             IsSorted::Ascending => {
                 self.last_non_null().and_then(|idx| {
                     // Safety:
-                    // first_non_null returns in bound index
+                    // last_non_null returns in bound index
                     unsafe { self.get_unchecked(idx) }
                 })
-            }
+            },
             IsSorted::Descending => {
                 self.first_non_null().and_then(|idx| {
                     // Safety:
-                    // last returns in bound index
+                    // first_non_null returns in bound index
                     unsafe { self.get_unchecked(idx) }
                 })
-            }
+            },
             IsSorted::Not => self
                 .downcast_iter()
                 .filter_map(compute::aggregate::max_primitive)
@@ -170,7 +166,7 @@ where
             DataType::Float64 => {
                 let len = (self.len() - self.null_count()) as f64;
                 self.sum().map(|v| v.to_f64().unwrap() / len)
-            }
+            },
             _ => {
                 let null_count = self.null_count();
                 let len = self.len();
@@ -186,7 +182,7 @@ where
                             sum += polars_arrow::kernels::agg_mean::sum_as_f64(arr);
                         }
                         Some(sum / (len - null_count) as f64)
-                    }
+                    },
                     #[cfg(not(feature = "simd"))]
                     _ => {
                         let mut acc = 0.0;
@@ -214,9 +210,9 @@ where
                             }
                         }
                         Some(acc / len)
-                    }
+                    },
                 }
-            }
+            },
         }
     }
 }
@@ -231,7 +227,7 @@ impl BooleanChunked {
                 .map(|arr| match arr.validity() {
                     Some(validity) => {
                         (arr.len() - (validity & arr.values()).unset_bits()) as IdxSize
-                    }
+                    },
                     None => (arr.len() - arr.values().unset_bits()) as IdxSize,
                 })
                 .sum()
@@ -450,8 +446,20 @@ impl Utf8Chunked {
             return None;
         }
         match self.is_sorted_flag() {
-            IsSorted::Ascending => self.get(self.len() - 1),
-            IsSorted::Descending => self.get(0),
+            IsSorted::Ascending => {
+                self.last_non_null().and_then(|idx| {
+                    // Safety:
+                    // last_non_null returns in bound index
+                    unsafe { self.get_unchecked(idx) }
+                })
+            },
+            IsSorted::Descending => {
+                self.first_non_null().and_then(|idx| {
+                    // Safety:
+                    // first_non_null returns in bound index
+                    unsafe { self.get_unchecked(idx) }
+                })
+            },
             IsSorted::Not => self
                 .downcast_iter()
                 .filter_map(compute::aggregate::max_string)
@@ -463,8 +471,20 @@ impl Utf8Chunked {
             return None;
         }
         match self.is_sorted_flag() {
-            IsSorted::Ascending => self.get(0),
-            IsSorted::Descending => self.get(self.len() - 1),
+            IsSorted::Ascending => {
+                self.first_non_null().and_then(|idx| {
+                    // Safety:
+                    // first_non_null returns in bound index
+                    unsafe { self.get_unchecked(idx) }
+                })
+            },
+            IsSorted::Descending => {
+                self.last_non_null().and_then(|idx| {
+                    // Safety:
+                    // last_non_null returns in bound index
+                    unsafe { self.get_unchecked(idx) }
+                })
+            },
             IsSorted::Not => self
                 .downcast_iter()
                 .filter_map(compute::aggregate::min_string)
@@ -485,27 +505,69 @@ impl ChunkAggSeries for Utf8Chunked {
     }
 }
 
+impl BinaryChunked {
+    pub(crate) fn max_binary(&self) -> Option<&[u8]> {
+        if self.is_empty() {
+            return None;
+        }
+        match self.is_sorted_flag() {
+            IsSorted::Ascending => {
+                self.last_non_null().and_then(|idx| {
+                    // Safety:
+                    // last_non_null returns in bound index
+                    unsafe { self.get_unchecked(idx) }
+                })
+            },
+            IsSorted::Descending => {
+                self.first_non_null().and_then(|idx| {
+                    // Safety:
+                    // first_non_null returns in bound index
+                    unsafe { self.get_unchecked(idx) }
+                })
+            },
+            IsSorted::Not => self
+                .downcast_iter()
+                .filter_map(compute::aggregate::max_binary)
+                .fold_first_(|acc, v| if acc > v { acc } else { v }),
+        }
+    }
+
+    pub(crate) fn min_binary(&self) -> Option<&[u8]> {
+        if self.is_empty() {
+            return None;
+        }
+        match self.is_sorted_flag() {
+            IsSorted::Ascending => {
+                self.first_non_null().and_then(|idx| {
+                    // Safety:
+                    // first_non_null returns in bound index
+                    unsafe { self.get_unchecked(idx) }
+                })
+            },
+            IsSorted::Descending => {
+                self.last_non_null().and_then(|idx| {
+                    // Safety:
+                    // last_non_null returns in bound index
+                    unsafe { self.get_unchecked(idx) }
+                })
+            },
+            IsSorted::Not => self
+                .downcast_iter()
+                .filter_map(compute::aggregate::min_binary)
+                .fold_first_(|acc, v| if acc < v { acc } else { v }),
+        }
+    }
+}
+
 impl ChunkAggSeries for BinaryChunked {
     fn sum_as_series(&self) -> Series {
         BinaryChunked::full_null(self.name(), 1).into_series()
     }
     fn max_as_series(&self) -> Series {
-        Series::new(
-            self.name(),
-            &[self
-                .downcast_iter()
-                .filter_map(compute::aggregate::max_binary)
-                .fold_first_(|acc, v| if acc > v { acc } else { v })],
-        )
+        Series::new(self.name(), [self.max_binary()])
     }
     fn min_as_series(&self) -> Series {
-        Series::new(
-            self.name(),
-            &[self
-                .downcast_iter()
-                .filter_map(compute::aggregate::min_binary)
-                .fold_first_(|acc, v| if acc < v { acc } else { v })],
-        )
+        Series::new(self.name(), [self.min_binary()])
     }
 }
 

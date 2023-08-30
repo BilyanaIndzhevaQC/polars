@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use polars_core::frame::groupby::GroupsProxy;
+use polars_core::frame::group_by::GroupsProxy;
 use polars_core::prelude::*;
 use polars_core::POOL;
 #[cfg(feature = "parquet")]
@@ -135,7 +135,7 @@ impl ApplyExpr {
                 }
                 let mut container = [s];
                 self.function.call_udf(&mut container)
-            }
+            },
         };
 
         let mut ca: ListChunked = if self.allow_threading {
@@ -168,13 +168,13 @@ impl ApplyExpr {
                 let ca = s.list().unwrap();
                 let out = ca.apply_to_inner(&|s| self.eval_and_flatten(&mut [s]))?;
                 (out.into_series(), true)
-            }
+            },
             AggState::AggregatedFlat(s) => (self.eval_and_flatten(&mut [s.clone()])?, true),
             AggState::NotAggregated(s) | AggState::Literal(s) => {
                 let (out, aggregated) = (self.eval_and_flatten(&mut [s.clone()])?, false);
                 check_map_output_len(s.len(), out.len(), &self.expr)?;
                 (out, aggregated)
-            }
+            },
         };
 
         ac.with_series_and_args(s, aggregated, Some(&self.expr), true)?;
@@ -285,7 +285,7 @@ impl PhysicalExpr for ApplyExpr {
         polars_ensure!(
             self.allow_group_aware,
             expr = self.expr,
-            ComputeError: "this expression cannot run in the groupby context",
+            ComputeError: "this expression cannot run in the group_by context",
         );
         if self.inputs.len() == 1 {
             let mut ac = self.inputs[0].evaluate_on_groups(df, groups, state)?;
@@ -295,7 +295,7 @@ impl PhysicalExpr for ApplyExpr {
                     let s = self.eval_and_flatten(&mut [ac.aggregated()])?;
                     ac.with_series(s, true, Some(&self.expr))?;
                     Ok(ac)
-                }
+                },
                 ApplyOptions::ApplyGroups => self.apply_single_group_aware(ac),
                 ApplyOptions::ApplyFlat => self.apply_single_elementwise(ac),
             }
@@ -311,7 +311,7 @@ impl PhysicalExpr for ApplyExpr {
                     ac.with_update_groups(UpdateGroups::WithGroupsLen);
                     ac.with_series(s, true, Some(&self.expr))?;
                     Ok(ac)
-                }
+                },
                 ApplyOptions::ApplyGroups => self.apply_multiple_group_aware(acs, df),
                 ApplyOptions::ApplyFlat => {
                     if acs
@@ -327,7 +327,7 @@ impl PhysicalExpr for ApplyExpr {
                             self.check_lengths,
                         )
                     }
-                }
+                },
             }
         }
     }
@@ -386,7 +386,7 @@ fn apply_multiple_elementwise<'a>(
             let mut ac = acs.swap_remove(0);
             ac.with_series(out.into_series(), true, None)?;
             Ok(ac)
-        }
+        },
         _ => {
             let mut s = acs
                 .iter_mut()
@@ -413,7 +413,7 @@ fn apply_multiple_elementwise<'a>(
             let mut ac = acs.swap_remove(0);
             ac.with_series_and_args(s, false, None, true)?;
             Ok(ac)
-        }
+        },
     }
 }
 
@@ -460,7 +460,7 @@ impl ApplyExpr {
                     },
                     None => Ok(true),
                 }
-            }
+            },
             #[cfg(feature = "is_in")]
             FunctionExpr::Boolean(BooleanFunction::IsIn) => {
                 let root = match expr_to_leaf_column_name(&input[0]) {
@@ -506,10 +506,10 @@ impl ApplyExpr {
                         }
 
                         Ok(true)
-                    }
+                    },
                     None => Ok(true),
                 }
-            }
+            },
             _ => Ok(true),
         }
     }

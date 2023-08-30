@@ -135,15 +135,18 @@ impl StringNameSpace {
 
     /// Convert a Utf8 column into a Date/Datetime/Time column.
     #[cfg(feature = "temporal")]
-    pub fn strptime(self, dtype: DataType, options: StrptimeOptions) -> Expr {
-        self.0
-            .map_private(StringFunction::Strptime(dtype, options).into())
+    pub fn strptime(self, dtype: DataType, options: StrptimeOptions, ambiguous: Expr) -> Expr {
+        self.0.map_many_private(
+            StringFunction::Strptime(dtype, options).into(),
+            &[ambiguous],
+            false,
+        )
     }
 
     /// Convert a Utf8 column into a Date column.
     #[cfg(feature = "dtype-date")]
     pub fn to_date(self, options: StrptimeOptions) -> Expr {
-        self.strptime(DataType::Date, options)
+        self.strptime(DataType::Date, options, lit("raise"))
     }
 
     /// Convert a Utf8 column into a Datetime column.
@@ -153,6 +156,7 @@ impl StringNameSpace {
         time_unit: Option<TimeUnit>,
         time_zone: Option<TimeZone>,
         options: StrptimeOptions,
+        ambiguous: Expr,
     ) -> Expr {
         // If time_unit is None, try to infer it from the format or set a default
         let time_unit = match (&options.format, time_unit) {
@@ -169,17 +173,17 @@ impl StringNameSpace {
                 } else {
                     TimeUnit::Microseconds
                 }
-            }
+            },
             (None, None) => TimeUnit::Microseconds,
         };
 
-        self.strptime(DataType::Datetime(time_unit, time_zone), options)
+        self.strptime(DataType::Datetime(time_unit, time_zone), options, ambiguous)
     }
 
     /// Convert a Utf8 column into a Time column.
     #[cfg(feature = "dtype-time")]
     pub fn to_time(self, options: StrptimeOptions) -> Expr {
-        self.strptime(DataType::Time, options)
+        self.strptime(DataType::Time, options, lit("raise"))
     }
 
     /// Convert a Utf8 column into a Decimal column.
@@ -222,7 +226,7 @@ impl StringNameSpace {
                 Some(s) => {
                     let iter = s.split(&by);
                     builder.append_values_iter(iter);
-                }
+                },
             });
             Ok(Some(builder.finish().into_series()))
         };
@@ -247,7 +251,7 @@ impl StringNameSpace {
                 Some(s) => {
                     let iter = s.split_inclusive(&by);
                     builder.append_values_iter(iter);
-                }
+                },
             });
             Ok(Some(builder.finish().into_series()))
         };
@@ -276,7 +280,7 @@ impl StringNameSpace {
                     for arr in &mut arrs {
                         arr.push_null()
                     }
-                }
+                },
                 Some(s) => {
                     let mut arr_iter = arrs.iter_mut();
                     let split_iter = s.split(&by);
@@ -287,7 +291,7 @@ impl StringNameSpace {
                     for arr in arr_iter {
                         arr.push_null()
                     }
-                }
+                },
             });
             let fields = arrs
                 .into_iter()
@@ -330,7 +334,7 @@ impl StringNameSpace {
                     for arr in &mut arrs {
                         arr.push_null()
                     }
-                }
+                },
                 Some(s) => {
                     let mut arr_iter = arrs.iter_mut();
                     let split_iter = s.split_inclusive(&by);
@@ -341,7 +345,7 @@ impl StringNameSpace {
                     for arr in arr_iter {
                         arr.push_null()
                     }
-                }
+                },
             });
             let fields = arrs
                 .into_iter()
@@ -384,7 +388,7 @@ impl StringNameSpace {
                     for arr in &mut arrs {
                         arr.push_null()
                     }
-                }
+                },
                 Some(s) => {
                     let mut arr_iter = arrs.iter_mut();
                     let split_iter = s.splitn(n, &by);
@@ -395,7 +399,7 @@ impl StringNameSpace {
                     for arr in arr_iter {
                         arr.push_null()
                     }
-                }
+                },
             });
             let fields = arrs
                 .into_iter()

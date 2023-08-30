@@ -70,7 +70,7 @@ fn run_per_sublist(
                         Err(e) => {
                             *m_err.lock().unwrap() = Some(e);
                             None
-                        }
+                        },
                     }
                 })
             })
@@ -91,7 +91,7 @@ fn run_per_sublist(
                         Err(e) => {
                             err = Some(e);
                             None
-                        }
+                        },
                     }
                 })
             })
@@ -110,7 +110,7 @@ fn run_per_sublist(
     }
 }
 
-fn run_on_groupby_engine(
+fn run_on_group_by_engine(
     name: &str,
     lst: &ListChunked,
     expr: &Expr,
@@ -134,7 +134,7 @@ fn run_on_groupby_engine(
         AggState::AggregatedFlat(_) | AggState::Literal(_) => {
             let out = ac.aggregated();
             out.as_list().into_series()
-        }
+        },
         _ => ac.aggregated(),
     };
     out.rename(name);
@@ -158,15 +158,15 @@ pub trait ListNameSpaceExtension: IntoListNameSpace + Sized {
                         polars_bail!(
                             ComputeError: "casting to categorical not allowed in `list.eval`"
                         )
-                    }
+                    },
                     Expr::Column(name) => {
                         polars_ensure!(
                             name.is_empty(),
                             ComputeError:
                             "named columns are not allowed in `list.eval`; consider using `element` or `col(\"\")`"
                         );
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
             let lst = s.list()?.clone();
@@ -194,7 +194,7 @@ pub trait ListNameSpaceExtension: IntoListNameSpace + Sized {
             };
 
             if fits_idx_size && s.null_count() == 0 && !is_user_apply() {
-                run_on_groupby_engine(s.name(), &lst, &expr)
+                run_on_group_by_engine(s.name(), &lst, &expr)
             } else {
                 run_per_sublist(s, &lst, &expr, parallel, output_field)
             }

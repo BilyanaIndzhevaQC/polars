@@ -53,6 +53,7 @@ These functions are available from the polars module root and can be used as exp
    last
    lit
    map
+   map_groups
    max
    max_horizontal
    mean
@@ -97,6 +98,7 @@ These functions are available from the polars module root and can be used as exp
    Expr.head
    Expr.implode
    Expr.map
+   Expr.map_elements
    Expr.max
    Expr.mean
    Expr.median

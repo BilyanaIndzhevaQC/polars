@@ -251,6 +251,8 @@ impl LogicalPlanBuilder {
         encoding: CsvEncoding,
         row_count: Option<RowCount>,
         try_parse_dates: bool,
+        raise_if_empty: bool,
+        truncate_ragged_lines: bool,
     ) -> PolarsResult<Self> {
         let path = path.into();
         let mut file = polars_utils::open_file(&path).map_err(|e| {
@@ -262,9 +264,12 @@ impl LogicalPlanBuilder {
                 polars_err!(ComputeError: "error open file: {}, {}", path, e)
             }
         })?;
+
         let mut magic_nr = [0u8; 2];
-        file.read_exact(&mut magic_nr)
-            .map_err(|_| polars_err!(NoData: "empty csv"))?;
+        let res = file.read_exact(&mut magic_nr);
+        if raise_if_empty {
+            res.map_err(|_| polars_err!(NoData: "empty CSV"))?;
+        };
         polars_ensure!(
             !is_compressed(&magic_nr),
             ComputeError: "cannot scan compressed csv; use `read_csv` for compressed data",
@@ -287,20 +292,21 @@ impl LogicalPlanBuilder {
             eol_char,
             null_values.as_ref(),
             try_parse_dates,
+            raise_if_empty,
         )?;
 
         if let Some(rc) = &row_count {
             match schema {
                 None => {
                     let _ = inferred_schema.insert_at_index(0, rc.name.as_str().into(), IDX_DTYPE);
-                }
+                },
                 Some(inner) => {
                     schema = Some(Arc::new(
                         inner
                             .new_inserting_at_index(0, rc.name.as_str().into(), IDX_DTYPE)
                             .unwrap(),
                     ));
-                }
+                },
             }
         }
 
@@ -340,6 +346,8 @@ impl LogicalPlanBuilder {
                     null_values,
                     encoding,
                     try_parse_dates,
+                    raise_if_empty,
+                    truncate_ragged_lines,
                 },
             },
         }
@@ -407,7 +415,7 @@ impl LogicalPlanBuilder {
             .filter_map(|(name, dtype)| match dtype {
                 DataType::Float32 | DataType::Float64 => {
                     Some(col(name).fill_nan(fill_value.clone()).alias(name))
-                }
+                },
                 _ => None,
             })
             .collect();
@@ -489,7 +497,7 @@ impl LogicalPlanBuilder {
             Expr::Column(name) => is_regex_projection(name),
             Expr::Wildcard | Expr::RenameAlias { .. } | Expr::Columns(_) | Expr::DtypeColumn(_) => {
                 true
-            }
+            },
             _ => false,
         }) {
             let schema = try_delayed!(self.0.schema(), &self.0, into);
@@ -502,13 +510,13 @@ impl LogicalPlanBuilder {
                 1 => {
                     // all good
                     rewritten.pop().unwrap()
-                }
+                },
                 0 => {
                     let msg = "The predicate expanded to zero expressions. \
                         This may for example be caused by a regex not matching column names or \
                         a column dtype match not hitting any dtypes in the DataFrame";
                     return raise_err!(polars_err!(ComputeError: msg), &self.0, into);
-                }
+                },
                 _ => {
                     let mut expanded = String::new();
                     for e in rewritten.iter().take(5) {
@@ -528,7 +536,7 @@ impl LogicalPlanBuilder {
                             This is ambiguous. Try to combine the predicates with the 'all_horizontal' or `any_horizontal' expression.")
                     };
                     return raise_err!(polars_err!(ComputeError: msg), &self.0, into);
-                }
+                },
             }
         } else {
             predicate
@@ -540,14 +548,14 @@ impl LogicalPlanBuilder {
         .into()
     }
 
-    pub fn groupby<E: AsRef<[Expr]>>(
+    pub fn group_by<E: AsRef<[Expr]>>(
         self,
         keys: Vec<Expr>,
         aggs: E,
         apply: Option<Arc<dyn DataFrameUdf>>,
         maintain_order: bool,
-        #[cfg(feature = "dynamic_groupby")] dynamic_options: Option<DynamicGroupOptions>,
-        #[cfg(feature = "dynamic_groupby")] rolling_options: Option<RollingGroupOptions>,
+        #[cfg(feature = "dynamic_group_by")] dynamic_options: Option<DynamicGroupOptions>,
+        #[cfg(feature = "dynamic_group_by")] rolling_options: Option<RollingGroupOptions>,
     ) -> Self {
         let current_schema = try_delayed!(self.0.schema(), &self.0, into);
         let current_schema = current_schema.as_ref();
@@ -588,7 +596,7 @@ impl LogicalPlanBuilder {
             try_delayed!(check_names(), &self.0, into)
         }
 
-        #[cfg(feature = "dynamic_groupby")]
+        #[cfg(feature = "dynamic_group_by")]
         {
             let index_columns = &[
                 rolling_options
@@ -610,14 +618,14 @@ impl LogicalPlanBuilder {
             }
         }
 
-        #[cfg(feature = "dynamic_groupby")]
+        #[cfg(feature = "dynamic_group_by")]
         let options = GroupbyOptions {
             dynamic: dynamic_options,
             rolling: rolling_options,
             slice: None,
         };
 
-        #[cfg(not(feature = "dynamic_groupby"))]
+        #[cfg(not(feature = "dynamic_group_by"))]
         let options = GroupbyOptions { slice: None };
 
         LogicalPlan::Aggregate {

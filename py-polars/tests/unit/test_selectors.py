@@ -1,9 +1,18 @@
+from typing import Any
+
 import pytest
 
 import polars as pl
 import polars.selectors as cs
 from polars.selectors import expand_selector
 from polars.testing import assert_frame_equal
+
+
+def assert_repr_equals(item: Any, expected: str) -> None:
+    """Assert that the repr of an item matches the expected string."""
+    if not isinstance(expected, str):
+        raise TypeError(f"'expected' must be a string; found {type(expected)}")
+    assert repr(item) == expected
 
 
 @pytest.fixture()
@@ -331,12 +340,15 @@ def test_selector_expansion() -> None:
 
 
 def test_selector_repr() -> None:
-    assert repr(cs.all() - cs.first()) == "(cs.all() - cs.first())"
-    assert repr(~cs.starts_with("a", "b")) == "~cs.starts_with('a', 'b')"
-    assert repr(cs.float() | cs.by_name("x")) == "(cs.float() | cs.by_name('x'))"
-    assert (
-        repr(cs.integer() & cs.matches("z"))
-        == "(cs.integer() & cs.matches(pattern='z'))"
+    assert_repr_equals(cs.all() - cs.first(), "(cs.all() - cs.first())")
+    assert_repr_equals(~cs.starts_with("a", "b"), "~cs.starts_with('a', 'b')")
+    assert_repr_equals(cs.float() | cs.by_name("x"), "(cs.float() | cs.by_name('x'))")
+    assert_repr_equals(
+        cs.integer() & cs.matches("z"), "(cs.integer() & cs.matches(pattern='z'))"
+    )
+    assert_repr_equals(
+        cs.temporal() | cs.by_dtype(pl.Utf8) & cs.string(False),
+        "(cs.temporal() | (cs.by_dtype(dtypes=[Utf8]) & cs.string(include_categorical=False)))",
     )
 
 
@@ -435,9 +447,9 @@ def test_selector_expr_dispatch() -> None:
         )
 
 
-def test_regex_expansion_groupby_9947() -> None:
+def test_regex_expansion_group_by_9947() -> None:
     df = pl.DataFrame({"g": [3], "abc": [1], "abcd": [3]})
-    assert df.groupby("g").agg(pl.col("^ab.*$")).columns == ["g", "abc", "abcd"]
+    assert df.group_by("g").agg(pl.col("^ab.*$")).columns == ["g", "abc", "abcd"]
 
 
 def test_regex_expansion_exclude_10002() -> None:
