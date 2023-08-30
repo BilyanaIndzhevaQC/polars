@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import polars as pl
+
 import re
 import sys
 from importlib import import_module
@@ -11,6 +13,8 @@ from polars.utils.deprecation import deprecate_renamed_parameter
 if TYPE_CHECKING:
     from polars import DataFrame
     from polars.type_aliases import DbReadEngine
+    from polars import LazyFrame
+    from polars.type_aliases import SchemaDefinition
 
 
 @deprecate_renamed_parameter("connection_uri", "connection", version="0.18.9")
@@ -192,3 +196,27 @@ def _open_adbc_connection(connection_uri: str) -> Any:
         connection_uri = re.sub(f"^{driver_name}:/{{,3}}", "", connection_uri)
 
     return adbc_driver.connect(connection_uri)
+
+def _get_schema(
+    table: str,
+    connection_uri,
+) -> SchemaDefinition :
+    query = f"""
+    SELECT *
+    FROM {table}
+    LIMIT 0 OFFSET 0
+    """
+    
+    dataframe = pl.read_database(query=query, connection_uri=connection_uri)
+    return dataframe.schema
+
+def scan_database(
+    table: str = None,
+    connection_uri = None,
+    schema: SchemaDefinition | None = None,
+) -> LazyFrame:
+    if schema is None:
+        schema = _get_schema(table, connection_uri)
+    return pl.LazyFrame(schema=schema)
+
+

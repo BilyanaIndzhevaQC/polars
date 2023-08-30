@@ -291,3 +291,132 @@ impl LogicalPlan {
         Ok((node, lp_arena, expr_arena))
     }
 }
+
+
+impl LogicalPlan {
+    pub fn database_query(&self) -> String {
+        // fn _sql_vec(expr: &Vec<Expr>, sep: &str) -> String {
+        //     expr.iter().map(|val| val._database_query()).collect::<Vec<String>>().join(sep)
+        // } 
+
+        // fn sql_vec(expr: &Vec<LogicalPlan>, sep: &str) -> String {
+        //     expr.iter().map(|val| val.database_query()).collect::<Vec<String>>().join(sep)
+        // }
+
+        match self {
+            // LogicalPlan::DataFrameScan {df, schema, output_schema, projection, selection} => {
+            //     format!("SELECT * FROM {{}}")
+            // },
+            // LogicalPlan::Projection {expr, input, schema, options} => {
+            //     format!("SELECT {} FROM\n({})", _sql_vec(expr, ", "), input.database_query())
+            // },
+            // LogicalPlan::Slice {input, offset, len} => {
+            //     format!("SELECT * FROM\n({})\nLIMIT {len} OFFSET {offset}", input.database_query())
+            // },
+            // LogicalPlan::Distinct {input, options} => {
+            //     format!("SELECT DISTINCT * FROM\n({})", input.database_query())
+            // },
+            // LogicalPlan::Selection {input, predicate} => {
+            //     format!("SELECT * FROM\n({})\nWHERE {}", 
+            //             input.database_query(), 
+            //             predicate._database_query()
+            //         )
+            // },
+            // LogicalPlan::Aggregate {input, keys, aggs, schema, apply, maintain_order, options} => {
+            //     format!("SELECT {} FROM\n({})\nGROUP BY {}",
+            //             _sql_vec(aggs, ", "), 
+            //             input.database_query(), 
+            //             _sql_vec(keys, ", ")
+            //         )
+            // },
+            // LogicalPlan::Sort {input, by_column, args} => {
+            //     format!("SELECT * FROM\n({})\nORDER BY {}", 
+            //             input.database_query(), 
+            //             _sql_vec(by_column, ", ")
+            //         )
+            // },
+            // LogicalPlan::Join {input_left, input_right, schema, left_on, right_on, options}  => {
+            //     let mut on = String::from("");
+            //     for i in 0..left_on.len() {
+            //         on.push_str(&format!("{} = {}", 
+            //                     left_on[i]._database_query(), 
+            //                     right_on[i]._database_query()
+            //                 ).to_string());
+            //     }
+
+            //     format!("SELECT * FROM\n({})\nJOIN ({})\nON {}", 
+            //             input_left.database_query(), 
+            //             input_right.database_query(), 
+            //             on
+            //         )
+            // },
+            // //LogicalPlan::HStack {input, exprs, schema, options} => ,
+            // LogicalPlan::Union {inputs, options} => {
+            //     format!("{}", sql_vec(inputs, "\nUNION ALL\n"))
+            // },
+            _ => "".to_string(),
+            
+            
+        }
+    //     #[cfg_attr(feature = "serde", serde(skip))]
+    // AnonymousScan {
+    //     function: Arc<dyn AnonymousScan>,
+    //     file_info: FileInfo,
+    //     predicate: Option<Expr>,
+    //     options: Arc<AnonymousScanOptions>,
+    // },
+    // #[cfg(feature = "python")]
+    // PythonScan { options: PythonOptions },
+
+    // /// Cache the input at this point in the LP
+    // Cache {
+    //     input: Box<LogicalPlan>,
+    //     id: usize,
+    //     count: usize,
+    // },
+    // Scan {
+    //     path: PathBuf,
+    //     file_info: FileInfo,
+    //     predicate: Option<Expr>,
+    //     file_options: FileScanOptions,
+    //     scan_type: FileScan,
+    // },
+
+    
+    // // a projection that doesn't have to be optimized
+    // // or may drop projected columns if they aren't in current schema (after optimization)
+    // LocalProjection {
+    //     expr: Vec<Expr>,
+    //     input: Box<LogicalPlan>,
+    //     schema: SchemaRef,
+    // },
+
+
+    // /// A (User Defined) Function
+    // MapFunction {
+    //     input: Box<LogicalPlan>,
+    //     function: FunctionNode,
+    // },
+
+    // /// Catches errors and throws them later
+    // #[cfg_attr(feature = "serde", serde(skip))]
+    // Error {
+    //     input: Box<LogicalPlan>,
+    //     err: ErrorStateSync,
+    // },
+    // /// This allows expressions to access other tables
+    // ExtContext {
+    //     input: Box<LogicalPlan>,
+    //     contexts: Vec<LogicalPlan>,
+    //     schema: SchemaRef,
+    // },
+    // FileSink {
+    //     input: Box<LogicalPlan>,
+    //     payload: FileSinkOptions,
+    // },
+    }
+}
+
+// vec<expr> union function
+// generics in rust
+// map python function

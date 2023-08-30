@@ -1,6 +1,7 @@
 #[cfg(feature = "temporal")]
 use polars_core::export::chrono::{Duration as ChronoDuration, NaiveDate, NaiveDateTime};
 use polars_core::prelude::*;
+use std::fmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -306,4 +307,36 @@ impl Literal for LiteralValue {
 /// the column is `5`.
 pub fn lit<L: Literal>(t: L) -> Expr {
     t.lit()
+}
+
+impl fmt::Display for LiteralValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LiteralValue::Null => write!(f, ""),
+            LiteralValue::Boolean(v) => write!(f, "{}", v),
+            LiteralValue::UInt8(v) => write!(f, "{}", v),
+            LiteralValue::UInt16(v) => write!(f, "{}", v),
+            LiteralValue::UInt32(v) => write!(f, "{}", v),
+            LiteralValue::UInt64(v) => write!(f, "{}", v),
+            LiteralValue::Int8(v) => write!(f, "{}", v),
+            LiteralValue::Int16(v) => write!(f, "{}", v),
+            LiteralValue::Int32(v) => write!(f, "{}", v),
+            LiteralValue::Int64(v) => write!(f, "{}", v),
+            LiteralValue::Float32(v) => write!(f, "{}", v),
+            LiteralValue::Float64(v) => write!(f, "{}", v),
+            LiteralValue::Utf8(v) => write!(f, "{}", v),
+            LiteralValue::Duration(v, tu) => write!(f, "{}-{}", v, tu), //to fix
+            LiteralValue::Date(v) => write!(f, "{}", v),
+            LiteralValue::DateTime(v, tu, tz) => write!(f, "{}", v), //to fix
+            LiteralValue::Time(v) => write!(f, "{}", v),
+            // LiteralValue::Binary(v) => write!(f, "{}", v),
+            // LiteralValue::Range {
+            //     low: i64,
+            //     high: i64,
+            //     data_type: DataType,
+            // } => write!(f, "{}-{}", low, high), //to fix
+            // LiteralValue::Series(v) => write!(f, "{}", v), //to fix
+            _ => write!(f, ""),
+        }
+    }
 }

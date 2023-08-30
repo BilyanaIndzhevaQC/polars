@@ -1023,6 +1023,9 @@ naive plan: (run LazyFrame.explain(optimized=True) to see the optimized plan)
             )
             return ldf.describe_optimized_plan()
         return self._ldf.describe_plan()
+    
+    def database_query(self) -> str:
+        return self._ldf.database_query()
 
     @deprecate_renamed_parameter(
         "common_subplan_elimination", "comm_subplan_elim", version="0.18.9"

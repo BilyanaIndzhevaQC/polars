@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Result, Formatter};
 use std::hash::{Hash, Hasher};
 
 use polars_core::prelude::*;
@@ -63,7 +63,7 @@ impl AsRef<Expr> for AggExpr {
 /// Expressions that can be used in various contexts. Queries consist of multiple expressions. When using the polars
 /// lazy API, don't construct an `Expr` directly; instead, create one using the functions in the `polars_lazy::dsl`
 /// module. See that module's docs for more info.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq)] 
 #[must_use]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Expr {
@@ -344,5 +344,346 @@ impl Operator {
 
     pub(crate) fn is_arithmetic(&self) -> bool {
         !(self.is_comparison())
+    }
+}
+
+pub enum SQLExpr {
+    Alias(Box<SQLExpr>, Arc<str>),
+    Column(Arc<str>),
+    Literal(LiteralValue),
+    Agg(AggExpr),
+    BinaryExpr {
+        left: Box<SQLExpr>,
+        op: Operator,
+        right: Box<SQLExpr>,
+    },
+
+    // Take {
+    //     expr: Box<Expr>,
+    //     idx: Box<Expr>,
+    // },
+
+    // /// A ternary operation
+    // /// if true then "foo" else "bar"
+    // Ternary {
+    //     predicate: Box<Expr>,
+    //     truthy: Box<Expr>,
+    //     falsy: Box<Expr>,
+    // },
+    // Function {
+    //     /// function arguments
+    //     input: Vec<Expr>,
+    //     /// function to apply
+    //     function: FunctionExpr,
+    //     options: FunctionOptions,
+    // },
+    // Filter {
+    //     input: Box<Expr>,
+    //     by: Box<Expr>,
+    // },
+    // /// See postgres window functions
+    // Window {
+    //     /// Also has the input. i.e. avg("foo")
+    //     function: Box<Expr>,
+    //     partition_by: Vec<Expr>,
+    //     order_by: Option<Box<Expr>>,
+    //     options: WindowOptions,
+    // },
+    // Wildcard,
+    // AnonymousFunction {
+    //     /// function arguments
+    //     input: Vec<Expr>,
+    //     /// function to apply
+    //     function: SpecialEq<Arc<dyn SeriesUdf>>,
+    //     /// output dtype of the function
+    //     #[cfg_attr(feature = "serde", serde(skip))]
+    //     output_type: GetOutput,
+    //     options: FunctionOptions,
+    // },
+}
+
+impl Display for SQLExpr {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        use SQLExpr::*;
+        let val = match self {
+            Alias(expr, new_name) => format!("{expr} AS {new_name}"),
+            Column(name) => format!("{name}"),
+            Literal(literal) => format!("{literal}"),
+            BinaryExpr {left, op, right} => format!("({left}) {op} ({right})"),
+            Agg(AggExpr) => AggExpr._database_query(),
+        };
+        write!(f, "{}", val)
+    }
+}
+
+
+pub enum InsideSQLQuery {
+    Name(String),
+    Node(Arc<SQLNode>)
+}
+
+impl Display for InsideSQLQuery {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        use InsideSQLQuery::*;
+        let val = match self {
+            Name(string) => format!("{string}"),
+            Name(node) => format!("{node}")
+        };
+        write!(f, "{}", val)
+    }
+}
+
+pub enum SQLQuery {
+    From(InsideSQLQuery),
+    Join(Arc<SQLNode>),
+    Select(Vec<SQLExpr>),
+    Where(SQLExpr),
+    GroupBy(SQLExpr),
+    Having(SQLExpr),
+    OrderBy(SQLExpr),
+    Offset(i32),
+    Fetch(i32),
+}
+
+
+impl SQLQuery {
+    fn priority(&self) -> i32 {
+        use SQLQuery::*;
+        match self {
+            From(_) => 1,
+            Join(_) => 2,
+            Select(_) => 3,
+            Where(_) => 4,
+            GroupBy(_) => 5,
+            Having(_) => 6,
+            OrderBy(_) => 7,
+            Offset(_) => 8,
+            Fetch(_) => 9
+        }
+    }
+}
+
+
+impl Display for SQLQuery {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        use SQLQuery::*;
+        let val = match self {
+            From(val) => format!("FROM {val}"),
+            Join(node) => format!("JOIN {node}"),
+            Select(vexpr) => {
+                let mut select = "SELECT ".to_owned();
+                if vexpr.len() == 0 {
+                    select.push_str("*");
+                }
+                else {
+                    select.push_str(&vexpr.iter().map(|val| format!("{val}")).collect::<Vec<String>>().join(", "));
+                }
+                format!("SELECT {select}")
+            },
+            Where(expr) => format!("WHERE {expr}"),
+            GroupBy(expr) => format!("GROUP BY {expr}"),
+            Having(expr) => format!("HAVING {expr}"),
+            OrderBy(expr) => format!("ORDER BY {expr}"),
+            Offset(num) => format!("OFFSET {num}"),
+            Fetch(num) => format!("LIMIT {num}")
+        };
+        write!(f, "{}", val)
+    }
+}
+
+
+pub struct SQLNode {
+    schema: SchemaRef,
+    queries: Vec<SQLQuery>
+}
+
+impl Display for SQLNode {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f, "{}", self.queries.iter().map(|val| format!("{val}")).collect::<Vec<String>>().join("\n"))
+    }
+}
+
+impl SQLNode {
+    fn add_node(&self, other: &SQLNode) -> &Self {
+
+    //     bool has_from = false;
+    //     for query in self.queries {
+    //         match query {
+    //             From(Name(string)) => {
+    //                 *query = From(Node(other));
+    //                 other.queries.push(From(Name(string)));
+    //                 has_from = true;
+    //             },
+    //             From(Node(node)) => {
+    //                 node.add_node(other);
+    //                 has_from = true;
+    //             },
+    //             _ => {}
+    //         };
+    //     }
+    //     if (!has_from) {
+    //         self.queries.push(SQLQuery::From(Node(other)));
+    //     }
+    } 
+}
+
+
+impl AggExpr {
+    pub fn _database_query(&self) -> String {
+        match self {
+            // AggExpr::Min{input, propagate_nans} => format!("MIN({})", input._database_query()),
+            // AggExpr::Max{input, propagate_nans} => format!("MAX({})", input._database_query()),
+            // AggExpr::Mean(input) => format!("AVG({})", input._database_query()),
+            // AggExpr::Sum(input) => format!("SUM({})", input._database_query()),
+            // AggExpr::Count(input) => format!("COUNT({})", input._database_query()),
+            // AggExpr::Median(input) => format!("MEDIAN({})", input._database_query()),
+            
+            // NUnique(Box<Expr>),
+            // First(Box<Expr>),
+            // Last(Box<Expr>),
+            // Implode(Box<Expr>),
+            // Quantile {
+            //     expr: Box<Expr>,
+            //     quantile: Box<Expr>,
+            //     interpol: QuantileInterpolOptions,
+            // },
+            // AggGroups(Box<Expr>),
+            // Std(Box<Expr>, u8),
+            // Var(Box<Expr>, u8),
+            _ => format!("\nPANIC!!!\n") //panic
+
+        }
+        
+    }
+}
+
+
+impl Expr {
+    pub fn _database_query(&self) -> (SQLExpr, Option<&mut SQLNode>) {
+        match self {
+            Expr::Alias(expr, new_name) => {
+                let (sql_expr, sql_node) = expr._database_query();
+                (SQLExpr::Alias(Box::new(sql_expr), new_name.clone()), sql_node)
+            },
+            Expr::Column(name) => (SQLExpr::Column(name.clone()), None),
+            Expr::Literal(literal) => (SQLExpr::Literal(literal.clone()), None),
+
+
+            Expr::BinaryExpr {left, op, right} => {
+                let (left_sql_expr, left_sql_node) = left._database_query();
+                let (right_sql_expr, right_sql_node) = right._database_query();
+                
+                let sql_node = match left_sql_node { //if let
+                    Some(left_sql_node) => match right_sql_node {
+                        Some(right_sql_node) => Some(left_sql_node.add_node(right_sql_node)),
+                        None => Some(left_sql_expr)
+                    },
+                    None => right_sql_expr
+                }; 
+
+                (SQLExpr::BinaryExpr(Box::new(left_sql_expr), op, Box::new(right_sql_expr)), sql_node)
+            }
+            // Expr::Agg(AggExpr) => AggExpr._database_query(),
+            _ => panic!("Expr cannot be converted to database query.") //panic
+            
+            // Sort { //maybe useless
+            //     expr: Box<Expr>,
+            //     options: SortOptions, //to impl
+            // } => format!("ORDER BY {}", expr._database_query()),
+            // SortBy {
+            //     expr: Box<Expr>,
+            //     by: Vec<Expr>,
+            //     descending: Vec<bool>,       
+            // }  => format!("SELECT {}\nORDER BY {}", expr.iter().map(_database_query()).collect::<Vec<String>>, by.),
+            // Cast {
+            //     expr: Box<Expr>,
+            //     data_type: DataType,
+            //     strict: bool,
+            // },
+            // Take {
+            //     expr: Box<Expr>,
+            //     idx: Box<Expr>,
+            // },
+            
+            // /// A ternary operation
+            // /// if true then "foo" else "bar"
+            // Ternary {
+            //     predicate: Box<Expr>,
+            //     truthy: Box<Expr>,
+            //     falsy: Box<Expr>,
+            // },
+            // Function {
+            //     /// function arguments
+            //     input: Vec<Expr>,
+            //     /// function to apply
+            //     function: FunctionExpr,
+            //     options: FunctionOptions,
+            // },
+
+            // Explode(Box<Expr>),
+            
+            // Filter {
+            //     input: Box<Expr>,
+            //     by: Box<Expr>,
+            // },
+
+            // /// See postgres window functions
+            // Window {
+            //     /// Also has the input. i.e. avg("foo")
+            //     function: Box<Expr>,
+            //     partition_by: Vec<Expr>,
+            //     order_by: Option<Box<Expr>>,
+            //     options: WindowOptions,
+            // },
+
+            // Wildcard,
+
+            // Slice {
+            //     input: Box<Expr>,
+            //     /// length is not yet known so we accept negative offsets
+            //     offset: Box<Expr>,
+            //     length: Box<Expr>,
+            // },
+
+            // /// Special case that does not need columns
+            // Count,
+
+            // /// Take the nth column in the `DataFrame`
+            // Nth(i64),
+        
+            // AnonymousFunction {
+            //     /// function arguments
+            //     input: Vec<Expr>,
+            //     /// function to apply
+            //     function: SpecialEq<Arc<dyn SeriesUdf>>,
+            //     /// output dtype of the function
+            //     #[cfg_attr(feature = "serde", serde(skip))]
+            //     output_type: GetOutput,
+            //     options: FunctionOptions,
+            // },
+            // /// Expressions in this node should only be expanding
+            // /// e.g.
+            // /// `Expr::Columns`
+            // /// `Expr::Dtypes`
+            // /// `Expr::Wildcard`
+            // /// `Expr::Exclude`
+
+
+
+            //panic
+            // // skipped fields must be last otherwise serde fails in pickle
+            // #[cfg_attr(feature = "serde", serde(skip))]
+            // RenameAlias {
+            //     function: SpecialEq<Arc<dyn RenameAliasFn>>,
+            //     expr: Box<Expr>,
+            // },
+            // /// Can be used in a select statement to exclude a column from selection
+            // Exclude(Box<Expr>, Vec<Excluded>),
+            // /// Set root name as Alias
+            // KeepName(Box<Expr>),
+            //Expr::Columns(names) => names.iter().map(|val| format!("{}", val)).collect::<Vec<String>>().join(", "),
+            // Expr::DtypeColumn(dtypes: Vec<DataType>) => 
+            // Selector(super::selector::Selector),
+        }
     }
 }

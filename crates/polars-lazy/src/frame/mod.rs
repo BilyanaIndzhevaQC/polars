@@ -194,6 +194,10 @@ impl LazyFrame {
         self.logical_plan.describe()
     }
 
+    pub fn database_query(&self) -> String {
+        self.logical_plan.database_query()
+    }
+
     /// Explain the optimized logical plan.
     pub fn describe_optimized_plan(&self) -> PolarsResult<String> {
         let mut expr_arena = Arena::with_capacity(64);

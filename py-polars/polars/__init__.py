@@ -168,6 +168,7 @@ from polars.io import (
     scan_ndjson,
     scan_parquet,
     scan_pyarrow_dataset,
+    scan_database,
 )
 from polars.lazyframe import LazyFrame
 from polars.series import Series
@@ -272,6 +273,7 @@ __all__ = [
     "scan_ndjson",
     "scan_parquet",
     "scan_pyarrow_dataset",
+    "scan_database",
     # polars.stringcache
     "StringCache",
     "enable_string_cache",
