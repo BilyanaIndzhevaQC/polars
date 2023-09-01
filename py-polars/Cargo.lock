@@ -1594,6 +1594,7 @@ dependencies = [
  "polars-time",
  "polars-utils",
  "pyo3",
+ "rand",
  "rayon",
  "regex",
  "serde",

@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from polars import DataFrame, LazyFrame
     from polars.dependencies import pyarrow as pa
-    from polars.type_aliases import ConnectionOrCursor, Cursor, DbReadEngine
+    from polars.type_aliases import ConnectionOrCursor, Cursor, DbReadEngine, SchemaDefinition
 
 
 class _DriverProperties_(TypedDict):
@@ -211,8 +211,6 @@ class ConnectionExecutor:
         raise NotImplementedError(
             f"Currently no support for {self.driver!r} connection {self.cursor!r}"
         )
-    from polars import LazyFrame
-    from polars.type_aliases import SchemaDefinition
 
 
 @deprecate_renamed_parameter("connection_uri", "connection", version="0.18.9")

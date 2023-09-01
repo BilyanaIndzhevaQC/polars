@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use arrow::compute::filter::filter_chunk;
 #[cfg(feature = "parquet")]
 use polars_core::cloud::CloudOptions;
 use polars_core::prelude::*;
@@ -292,30 +293,67 @@ impl LogicalPlan {
     }
 }
 
+use rand::{distributions::Alphanumeric, Rng}; 
 
 impl LogicalPlan {
-    pub fn database_query(&self) -> String {
-        // fn _sql_vec(expr: &Vec<Expr>, sep: &str) -> String {
-        //     expr.iter().map(|val| val._database_query()).collect::<Vec<String>>().join(sep)
-        // } 
+    pub fn database_query(&self) -> SQLNode {
+        fn random_string() -> String {
+            rand::thread_rng()
+                    .sample_iter(&Alphanumeric)
+                    .take(7)
+                    .map(char::from)
+                    .collect()
+        }
+        
+
+        fn sql_vec_expr(expr: &Vec<Expr>) -> (Vec<SQLExpr>, Option<SQLNode>) {
+            let (vexpr, vnode) : (Vec<_>, Vec<_>)
+                        = expr.iter().map(|val| val._database_query()).unzip();
+            let node_fold = vnode.into_iter()
+                                          .flatten()
+                                          .fold(SQLNode::dummy_node().into(), |curr : SQLNode, new_node: SQLNode| curr.add_node(new_node));
+            
+            if node_fold.is_empty() {
+                (vexpr, None)
+            }
+            else {
+                (vexpr, Some(node_fold))
+            }
+        } 
 
         // fn sql_vec(expr: &Vec<LogicalPlan>, sep: &str) -> String {
         //     expr.iter().map(|val| val.database_query()).collect::<Vec<String>>().join(sep)
         // }
 
         match self {
-            // LogicalPlan::DataFrameScan {df, schema, output_schema, projection, selection} => {
-            //     format!("SELECT * FROM {{}}")
-            // },
-            // LogicalPlan::Projection {expr, input, schema, options} => {
-            //     format!("SELECT {} FROM\n({})", _sql_vec(expr, ", "), input.database_query())
-            // },
-            // LogicalPlan::Slice {input, offset, len} => {
-            //     format!("SELECT * FROM\n({})\nLIMIT {len} OFFSET {offset}", input.database_query())
-            // },
-            // LogicalPlan::Distinct {input, options} => {
-            //     format!("SELECT DISTINCT * FROM\n({})", input.database_query())
-            // },
+            LogicalPlan::DataFrameScan {df, schema, output_schema, projection, selection} => {
+                SQLNode::named_schema_node(schema.clone(), random_string())
+            },
+            LogicalPlan::Projection {expr, input, schema, options} => {
+                let mut dummy_node = input.database_query();
+
+                let (vexpr, node) = sql_vec_expr(expr);
+                if !vexpr.is_empty() {
+                    let options = SQLSelectOptions {distinct: false};
+                    dummy_node = dummy_node.add_query(SQLQuery::Select{vexpr, options});
+                }
+                
+                if let Some(val) = node {
+                    val.add_node(dummy_node)
+                } 
+                else {
+                    dummy_node
+                }
+            },
+            LogicalPlan::Slice {input, offset, len} => {
+                let mut dummy_node = input.database_query();
+                dummy_node.add_query(SQLQuery::Fetch(*len)).add_query(SQLQuery::Offset(*offset))
+            },
+            LogicalPlan::Distinct {input, options} => {
+                let mut dummy_node = input.database_query();
+                let options = SQLSelectOptions {distinct: true};
+                dummy_node.add_query(SQLQuery::Select{vexpr: vec![], options})
+            },
             // LogicalPlan::Selection {input, predicate} => {
             //     format!("SELECT * FROM\n({})\nWHERE {}", 
             //             input.database_query(), 
@@ -354,7 +392,7 @@ impl LogicalPlan {
             // LogicalPlan::Union {inputs, options} => {
             //     format!("{}", sql_vec(inputs, "\nUNION ALL\n"))
             // },
-            _ => "".to_string(),
+            _ => SQLNode::dummy_node().into(),
             
             
         }
