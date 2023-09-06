@@ -459,13 +459,84 @@ def _open_adbc_connection(connection_uri: str) -> Any:
 
     return adbc_driver.connect(connection_uri)
 
+import sqlite3
+
+class DBConnection:
+    table: str
+    connection_uri: str
+    table_name: str
+    
+    lazyframe: LazyFrame
+    
+    def __init__(
+        self,
+        table: str | None = None,
+        connection_uri: str | None = None,
+        table_name: str | None = None,
+    ) :
+        self.table = table
+        self.connection_uri = connection_uri
+        self.table_name = table_name
+        self.connect()
+    
+    def connect(self):
+        self.lazyframe = scan_database(table_name=self.table_name, connection_uri=self.connection_uri)
+    
+    def do_query(self):
+        query = self.lazyframe.database_query(self.table_name)
+        print("\nQUERY:\n", query, "\n")
+        
+        con = sqlite3.connect(self.table)
+        cur = con.cursor()
+        res = cur.execute(query)
+        
+        print([description[0] for description in res.description])
+        for row in res.fetchall(): 
+            print(row)
+            
+        self.lazyframe.collect()
+        
+    def select(self, *args, **kwargs):
+        self.lazyframe = self.lazyframe.select(*args, **kwargs)
+        return self
+        
+    def filter(self, *args, **kwargs):
+        self.lazyframe = self.lazyframe.filter(*args, **kwargs)
+        return self
+        
+    def unique(self, *args, **kwargs):
+        self.lazyframe = self.lazyframe.unique(*args, **kwargs)
+        return self
+        
+    def slice(self, *args, **kwargs):
+        self.lazyframe = self.lazyframe.slice(*args, **kwargs)
+        return self
+        
+    def with_columns(self, *args, **kwargs):
+        self.lazyframe = self.lazyframe.with_columns(*args, **kwargs)
+        return self
+    
+    def sort(self, *args, **kwargs):
+        self.lazyframe = self.lazyframe.sort(*args, **kwargs)
+        return self
+        
+    # def join(self, other, *args):
+    #     self.lazyframe.select(other.lazyframe, *args)
+    
+    def print_query(self):
+        pass
+    def get_schema():
+        pass
+
+
+
 def _get_schema(
-    table: str,
+    table_name: str,
     connection_uri,
 ) -> SchemaDefinition :
     query = f"""
     SELECT *
-    FROM {table}
+    FROM {table_name}
     LIMIT 0 OFFSET 0
     """
     
@@ -473,12 +544,13 @@ def _get_schema(
     return dataframe.schema
 
 def scan_database(
-    table: str = None,
+    table_name: str = None,
     connection_uri = None,
     schema: SchemaDefinition | None = None,
 ) -> LazyFrame:
     if schema is None:
-        schema = _get_schema(table, connection_uri)
+        schema = _get_schema(table_name, connection_uri)
     return pl.LazyFrame(schema=schema)
+
 
 

@@ -342,7 +342,7 @@ class SQLContext(Generic[FrameType]):
         Query using the register variable/frame names
 
         >>> ctx.execute(
-        ...     "SELECT a, b, c FROM df1 LEFT JOIN df2 USING (a) ORDER BY a DESC"
+        ...     "SELECT a, b, c FROM df1  df2 USING (a) ORDER BY a DESC"
         ... ).collect()
         shape: (3, 3)
         ┌─────┬──────┬──────┐

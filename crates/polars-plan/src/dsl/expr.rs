@@ -1,5 +1,5 @@
 use core::panic;
-use std::fmt::{Debug, Display, Result, Formatter};
+use std::fmt::{Debug, Display, Result, Formatter, write};
 use std::hash::{Hash, Hasher};
 
 use polars_core::prelude::*;
@@ -350,36 +350,34 @@ impl Operator {
 
 impl AggExpr {
     pub fn _database_query(&self) -> (SQLAggExpr, Option<SQLNode>) {
-        use AggExpr::*;
-
         match self {
-            Min{input, propagate_nans} => {
+            AggExpr::Min{input, propagate_nans} => {
                 let (expr, node) = input._database_query();
                 (SQLAggExpr::Min{input: Box::new(expr), propagate_nans: *propagate_nans},
                     node)
             },
-            Max{input, propagate_nans} => {
+            AggExpr::Max{input, propagate_nans} => {
                 let (expr, node) = input._database_query();
                 (SQLAggExpr::Max{input: Box::new(expr), propagate_nans: *propagate_nans},
                     node)
             },
-            Mean(input) => {
+            AggExpr::Mean(input) => {
                 let (expr, node) = input._database_query();
                 (SQLAggExpr::Mean(Box::new(expr)), node)
             },
-            Sum(input) => {
+            AggExpr::Sum(input) => {
                 let (expr, node) = input._database_query();
                 (SQLAggExpr::Sum(Box::new(expr)), node)
             },
-            Count(input) => {
+            AggExpr::Count(input) => {
                 let (expr, node) = input._database_query();
                 (SQLAggExpr::Count(Box::new(expr)), node)
             },
-            Median(input) =>  {
+            AggExpr::Median(input) =>  {
                 let (expr, node) = input._database_query();
                 (SQLAggExpr::Median(Box::new(expr)), node)
             },
-            First(input) =>  {
+            AggExpr::First(input) =>  {
                 let (expr, node) = input._database_query();
                 (SQLAggExpr::First(Box::new(expr)), node)
             },
@@ -411,10 +409,12 @@ impl Expr {
                 let (sql_expr, sql_node) = expr._database_query();
                 (SQLExpr::Alias(Box::new(sql_expr), new_name.clone()), sql_node)
             },
-            Expr::Column(name) => (SQLExpr::Column(name.clone()), None),
-            Expr::Literal(literal) => (SQLExpr::Literal(literal.clone()), None),
-
-
+            Expr::Column(name) => {
+                (SQLExpr::Column(name.clone()), None)
+            },
+            Expr::Literal(literal) => {
+                (SQLExpr::Literal(literal.clone()), None)
+            },
             Expr::BinaryExpr {left, op, right} => {
                 let (left_sql_expr, left_sql_node) = left._database_query();
                 let (right_sql_expr, right_sql_node) = right._database_query();
@@ -433,7 +433,10 @@ impl Expr {
                 let expr = SQLExpr::BinaryExpr {left:Box::new(left_sql_expr), op:*op, right:Box::new(right_sql_expr)};
                 (expr, sql_node)
             }
-            // Expr::Agg(AggExpr) => AggExpr._database_query(),
+            Expr::Agg(aggExpr) => {
+                let (sql_expr, sql_node) = aggExpr._database_query();
+                (SQLExpr::Agg(sql_expr), sql_node)
+            },
             _ => panic!("Expr cannot be converted to database query.") //panic
             
             // Sort { //maybe useless
@@ -551,6 +554,42 @@ impl Display for SQLSelectOptions {
 }
 
 #[derive(Clone, Debug)]
+pub enum SQLJoinType {
+    Left,
+    Right,
+    Inner,
+    Outer,
+    Union,
+}
+
+impl Display for SQLJoinType {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        use SQLJoinType::*;
+        let val = match self {
+            Left => "LEFT JOIN",
+            Right => "RIGHT JOIN",
+            Inner => "INNER JOIN",
+            Outer => "OUTER JOIN",
+            Union => "UNION",
+        };
+
+        write!(f, "{}", val)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SQLJoinOptions {
+    pub how: SQLJoinType
+}
+
+
+impl Display for SQLJoinOptions {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f, "{}", self.how)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum SQLAggExpr {
     Min {
         input: Box<SQLExpr>,
@@ -609,6 +648,20 @@ impl SQLAggExpr {
         }
 
     }
+
+    pub fn remove_alias(&self) -> Self {
+        use SQLAggExpr::*;
+        match self {
+            Min{input, propagate_nans} => Min{input: Box::new(input.remove_alias()), propagate_nans: *propagate_nans},
+            Max{input, propagate_nans} => Max{input: Box::new(input.remove_alias()), propagate_nans: *propagate_nans},
+            Mean(input) => Mean(Box::new(input.remove_alias())),
+            Sum(input) => Sum(Box::new(input.remove_alias())),
+            Count(input) => Count(Box::new(input.remove_alias())),
+            Median(input) => Median(Box::new(input.remove_alias())),
+            First(input) => First(Box::new(input.remove_alias())),
+        }
+    }
+
 }
 
 
@@ -694,7 +747,7 @@ impl SQLExpr {
         }
     }
 
-    fn remove_alias(&self) -> Self {
+    pub fn remove_alias(&self) -> Self {
         use SQLExpr::*;
         match self {
             Alias(expr, new_name) => expr.remove_alias(),
@@ -703,7 +756,7 @@ impl SQLExpr {
             BinaryExpr {left, op, right} => {
                 BinaryExpr {left: Box::new(left.remove_alias().clone()), op: *op, right: Box::new(right.remove_alias().clone())}
             },
-            Agg(aggExpr) => aggExpr.get_expr().remove_alias(),
+            Agg(aggExpr) => Agg(aggExpr.remove_alias()),
         }
     }
 
@@ -723,7 +776,7 @@ impl Display for InsideSQLQuery {
         use InsideSQLQuery::*;
         let val = match self {
             Name(string) => format!("{string}"),
-            Node(node) => format!("FROM (\n{node}\n)\n")
+            Node(node) => format!("(\n{node}\n)")
         };
         write!(f, "{}", val)
     }
@@ -732,15 +785,20 @@ impl Display for InsideSQLQuery {
 #[derive(Clone, Debug)]
 pub enum SQLQuery {
     From(InsideSQLQuery),
-    Join(Arc<SQLNode>),
+    Join {
+        node: Arc<SQLNode>,
+        left_on: Vec<SQLExpr>,
+        right_on: Vec<SQLExpr>,
+        options: SQLJoinOptions
+    },
     Select {
         vexpr: Vec<SQLExpr>, 
         options: SQLSelectOptions
     },
     Where(SQLExpr),
-    GroupBy(SQLExpr),
+    GroupBy(Vec<SQLExpr>),
     Having(SQLExpr),
-    OrderBy(SQLExpr),
+    OrderBy(Vec<SQLExpr>),
     Offset(i64),
     Fetch(u32),
 }
@@ -751,14 +809,14 @@ impl SQLQuery {
         use SQLQuery::*;
         match self {
             From(_) => 2,
-            Join(_) => 3,
-            Select{vexpr, options} => 1,
+            Join{..} => 3,
+            Select{..} => 1,
             Where(_) => 4,
             GroupBy(_) => 5,
             Having(_) => 6,
             OrderBy(_) => 7,
-            Offset(_) => 8,
-            Fetch(_) => 9
+            Fetch(_) => 8,
+            Offset(_) => 9,
         }
     }
 }
@@ -769,7 +827,18 @@ impl Display for SQLQuery {
         use SQLQuery::*;
         let val = match self {
             From(val) => format!("FROM {val}"),
-            Join(node) => format!("JOIN ({node})"),
+            Join {
+                node, 
+                left_on, 
+                right_on, 
+                options
+            } => { 
+                let mut join_on = "".to_owned() ;
+                for i in 0..left_on.len() {
+                    join_on.push_str(&format!("{} = {}", left_on[i], right_on[i]).to_string());
+                }
+                format!("{options} (\n{node}\n)\nON {join_on}")
+            },
             Select {vexpr, options} => {
                 let mut select = "".to_owned();
                 if vexpr.len() == 0 {
@@ -781,9 +850,17 @@ impl Display for SQLQuery {
                 format!("{options} {select}")
             },
             Where(expr) => format!("WHERE {expr}"),
-            GroupBy(expr) => format!("GROUP BY {expr}"),
+            GroupBy(vexpr) => {
+                let mut groupby = "".to_owned();
+                groupby.push_str(&vexpr.iter().map(|val| format!("{}", val)).collect::<Vec<String>>().join(", "));
+                format!("GROUP BY {groupby}")
+            }
             Having(expr) => format!("HAVING {expr}"),
-            OrderBy(expr) => format!("ORDER BY {expr}"),
+            OrderBy(vexpr) =>{
+                let mut orderby = "".to_owned();
+                orderby.push_str(&vexpr.iter().map(|val| format!("{}", val)).collect::<Vec<String>>().join(", "));
+                format!("ORDER BY {orderby}")
+            },
             Offset(num) => format!("OFFSET {num}"),
             Fetch(num) => format!("LIMIT {num}")
         };
@@ -817,31 +894,45 @@ impl SQLNode {
         self.schema.is_none() && self.queries.is_empty()
     }
 
-    pub fn dummy_node() -> Self {
+    pub fn empty_dummy_node() -> Self {
         Self {
-                schema: None,
-                queries: vec![]
+            schema: None,
+            queries: vec![]
+        }
+    }
+
+    pub fn query_dummy_node(query: SQLQuery) -> Self {
+        Self {
+            schema: None,
+            queries: vec![query]
         }
     }
 
     pub fn named_dummy_node(name: String) -> Self {
-        Self {
-                schema: None,
-                queries: vec![SQLQuery::From(InsideSQLQuery::Name(name))]
-        }
+        SQLNode::query_dummy_node(SQLQuery::From(InsideSQLQuery::Name(name)))
     }
-
+    
     pub fn named_schema_node(schema: SchemaRef, name: String) -> Self {
         Self {
-                schema: Some(schema.into()),
-                queries: vec![SQLQuery::From(InsideSQLQuery::Name(name))]
+            schema: Some(schema.into()),
+            queries: vec![SQLQuery::From(InsideSQLQuery::Name(name))]
         }
     }
 
     pub fn add_query(&self, query: SQLQuery) -> SQLNode {
         let mut node = self.clone();
-        node.queries.push(query.clone());//add_checks, if exists add new node
-        node
+
+        let index = node.queries.iter().position(|val| std::mem::discriminant(val) == std::mem::discriminant(&query));
+
+        match index {
+            Some(_) => {
+                SQLNode::query_dummy_node(query).add_node(node)
+            },
+            None => {
+                node.queries.push(query.clone());
+                node
+            }
+        }
     }
     
     pub fn add_node(&self, other: SQLNode) -> SQLNode {
@@ -849,29 +940,29 @@ impl SQLNode {
         use InsideSQLQuery::*;
 
         let mut node = self.clone();
+        let mut other: SQLNode = other.clone();
 
-        let index = node.queries.iter().position(|val| matches!(val, SQLQuery::From(_)));
+        let index = node.queries.iter().position(|val| matches!(val, From(_)));
         let mut from = None;
 
         match index {
             Some(index) => {
                 from = Some(node.queries.remove(index));
             },
-            None => {
-                node.queries.push(SQLQuery::From(Node(other.clone().into())));
-            }
+            None => {}
         };
 
         match from {
             Some(From(Name(from_name))) => {
-                other.add_node(SQLNode::named_dummy_node(from_name.clone()).into());
+                other = other.add_query(From(Name(from_name.clone())));
             },
             Some(From(Node(from_node))) => {
-                other.add_node(from_node);
+                other = other.add_node(from_node);
             },
             _ => {}
         }
 
+        node.queries.push(From(Node(other.clone().into())));
         node.into()
     } 
 }

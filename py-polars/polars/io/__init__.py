@@ -2,7 +2,7 @@
 
 from polars.io.avro import read_avro
 from polars.io.csv import read_csv, read_csv_batched, scan_csv
-from polars.io.database import read_database, scan_database, read_database_uri
+from polars.io.database import read_database, scan_database, read_database_uri, DBConnection 
 from polars.io.delta import read_delta, scan_delta
 from polars.io.excel import read_excel
 from polars.io.ipc import read_ipc, read_ipc_schema, read_ipc_stream, scan_ipc
@@ -12,6 +12,7 @@ from polars.io.parquet import read_parquet, read_parquet_schema, scan_parquet
 from polars.io.pyarrow_dataset import scan_pyarrow_dataset
 
 __all__ = [
+    "DBConnection",
     "read_avro",
     "read_csv",
     "read_csv_batched",

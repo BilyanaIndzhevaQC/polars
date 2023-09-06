@@ -198,8 +198,8 @@ impl LazyFrame {
         self.logical_plan.describe()
     }
 
-    pub fn database_query(&self) -> String {
-        format!("{}", self.logical_plan.database_query())
+    pub fn database_query(&self, table: &String) -> String {
+        format!("{}", self.logical_plan.database_query(table))
     }
 
     /// Return a String describing the optimized logical plan.

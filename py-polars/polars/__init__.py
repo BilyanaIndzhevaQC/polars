@@ -152,6 +152,7 @@ from polars.functions import (
 )
 from polars.interchange.from_dataframe import from_dataframe
 from polars.io import (
+    DBConnection,
     read_avro,
     read_csv,
     read_csv_batched,

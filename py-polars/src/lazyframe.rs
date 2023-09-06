@@ -322,8 +322,8 @@ impl PyLazyFrame {
         self.ldf.describe_plan()
     }
 
-    fn database_query(&self) -> String {    
-        self.ldf.database_query()
+    fn database_query(&self, table: String) -> String {    
+        self.ldf.database_query(&table)
     }
 
     fn describe_optimized_plan(&self) -> PyResult<String> {

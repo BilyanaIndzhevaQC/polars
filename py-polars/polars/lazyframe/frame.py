@@ -1027,9 +1027,25 @@ naive plan: (run LazyFrame.explain(optimized=True) to see the optimized plan)
             )
             return ldf.describe_optimized_plan()
         return self._ldf.describe_plan()
+
     
-    def database_query(self) -> str:
-        return self._ldf.database_query()
+    def database_query(self, table) -> str:
+        def fix_spacing(query_str):
+            curr = 0
+            str2 = ""
+            for ch in query_str:
+                str2 += ch
+                
+                if ch == "\n":
+                    str2 += "    " * curr
+                elif ch == "(":
+                    curr = curr + 1
+                elif ch == ")":
+                    curr = curr - 1
+                    
+            return str2
+        
+        return fix_spacing(self._ldf.database_query(table))
 
     @deprecate_renamed_parameter(
         "common_subplan_elimination", "comm_subplan_elim", version="0.18.9"
