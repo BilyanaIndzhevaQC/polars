@@ -343,6 +343,7 @@ class DataFrame:
         orient: Orientation | None = None,
         infer_schema_length: int | None = N_INFER_DEFAULT,
         nan_to_null: bool = False,
+        name: str | None = None,
     ):
         if data is None:
             self._df = dict_to_pydf(
@@ -402,6 +403,9 @@ class DataFrame:
                 f"DataFrame constructor called with unsupported type {type(data).__name__!r}"
                 " for the `data` parameter"
             )
+            
+        if name is not None:
+            self._df.add_name(name)
 
     @classmethod
     def _from_pydf(cls, py_df: PyDataFrame) -> Self:
@@ -1257,6 +1261,9 @@ class DataFrame:
 
         """
         return dict(zip(self.columns, self.dtypes))
+
+    def add_name(self, name):
+        self._df.add_name(name)
 
     def __array__(self, dtype: Any = None) -> np.ndarray[Any, Any]:
         """

@@ -322,10 +322,10 @@ impl PyLazyFrame {
         self.ldf.describe_plan()
     }
 
-    fn database_query(&self, table: String) -> String {    
-        self.ldf.database_query(&table)
+    fn database_query(&self) -> String {    
+        self.ldf.database_query()
     }
-
+    
     fn describe_optimized_plan(&self) -> PyResult<String> {
         let result = self
             .ldf
@@ -333,6 +333,7 @@ impl PyLazyFrame {
             .map_err(PyPolarsErr::from)?;
         Ok(result)
     }
+
     fn to_dot(&self, optimized: bool) -> PyResult<String> {
         let result = self.ldf.to_dot(optimized).map_err(PyPolarsErr::from)?;
         Ok(result)

@@ -462,95 +462,77 @@ def _open_adbc_connection(connection_uri: str) -> Any:
 import sqlite3
 
 class DBConnection:
-    table: str
     connection_uri: str
-    table_name: str
+    table: str
     
     lazyframe: LazyFrame
     
     def __init__(
         self,
-        table: str | None = None,
         connection_uri: str | None = None,
-        table_name: str | None = None,
+        table: str | None = None,
+        *,
+        lazyframe: LazyFrame | None = None,
     ) :
-        self.table = table
         self.connection_uri = connection_uri
-        self.table_name = table_name
-        self.connect()
+        self.table = table
+
+        if lazyframe is None:
+            self.connect()
+        else:
+            self.lazyframe = lazyframe    
     
+    def __get_schema(
+        self
+    ) -> SchemaDefinition :
+        query = f"""
+        SELECT *
+        FROM {self.table}
+        LIMIT 0 OFFSET 0
+        """
+    
+        dataframe = pl.read_database_uri(uri=self.connection_uri, query=query)
+        return pl.LazyFrame(schema=dataframe.schema, name=self.table)
+
     def connect(self):
-        self.lazyframe = scan_database(table_name=self.table_name, connection_uri=self.connection_uri)
+        self.lazyframe = self.__get_schema()
     
-    def do_query(self):
-        query = self.lazyframe.database_query(self.table_name)
-        print("\nQUERY:\n", query, "\n")
-        
-        con = sqlite3.connect(self.table)
-        cur = con.cursor()
-        res = cur.execute(query)
-        
-        print([description[0] for description in res.description])
-        for row in res.fetchall(): 
-            print(row)
-            
+    def collect(self):
+        query = self.lazyframe.database_query()
         self.lazyframe.collect()
         
-    def select(self, *args, **kwargs):
-        self.lazyframe = self.lazyframe.select(*args, **kwargs)
-        return self
+        # sqlite3 implementation
+        database = self.connection_uri.split("/")[-1]
         
-    def filter(self, *args, **kwargs):
-        self.lazyframe = self.lazyframe.filter(*args, **kwargs)
-        return self
+        con = sqlite3.connect(database)
+        cur = con.cursor()
         
-    def unique(self, *args, **kwargs):
-        self.lazyframe = self.lazyframe.unique(*args, **kwargs)
-        return self
+        res = cur.execute(query)
+        rows = [tuple([description[0] for description in res.description])] + res.fetchall()
         
-    def slice(self, *args, **kwargs):
-        self.lazyframe = self.lazyframe.slice(*args, **kwargs)
-        return self
-        
-    def with_columns(self, *args, **kwargs):
-        self.lazyframe = self.lazyframe.with_columns(*args, **kwargs)
-        return self
-    
-    def sort(self, *args, **kwargs):
-        self.lazyframe = self.lazyframe.sort(*args, **kwargs)
-        return self
-        
-    # def join(self, other, *args):
-    #     self.lazyframe.select(other.lazyframe, *args)
+        max_word = max([max(map(len, map(str, row))) for row in rows])
+        query_string = "\n".join([" ".join([str(word).ljust(max_word + 2) for word in row]) for row in rows])
+
+        return query_string
     
     def print_query(self):
-        pass
-    def get_schema():
-        pass
-
-
-
-def _get_schema(
-    table_name: str,
-    connection_uri,
-) -> SchemaDefinition :
-    query = f"""
-    SELECT *
-    FROM {table_name}
-    LIMIT 0 OFFSET 0
-    """
-    
-    dataframe = pl.read_database(query=query, connection_uri=connection_uri)
-    return dataframe.schema
+        query = self.lazyframe.database_query()
+        print("\nQUERY:\n" + query + "\n")
+   
+   
+    def __getattr__(self, name):
+        def wrapper(*args, **kwargs):
+            lazyframe = getattr(self.lazyframe, name)(*args, **kwargs)
+            return DBConnection(connection_uri=self.connection_uri, table=self.table, lazyframe=lazyframe)
+        
+        return wrapper
+        
 
 def scan_database(
-    table_name: str = None,
     connection_uri = None,
-    schema: SchemaDefinition | None = None,
-) -> LazyFrame:
-    if schema is None:
-        schema = _get_schema(table_name, connection_uri)
-    return pl.LazyFrame(schema=schema)
+    table: str = None,
+) -> DBConnection:
+    return pl.DBConnection(connection_uri=connection_uri, table=table)
 
 
 

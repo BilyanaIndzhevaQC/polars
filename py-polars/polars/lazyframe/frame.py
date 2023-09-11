@@ -277,6 +277,7 @@ class LazyFrame:
         orient: Orientation | None = None,
         infer_schema_length: int | None = N_INFER_DEFAULT,
         nan_to_null: bool = False,
+        name: str | None = None,
     ):
         from polars.dataframe import DataFrame
 
@@ -284,6 +285,7 @@ class LazyFrame:
             DataFrame(
                 data=data,
                 schema=schema,
+                name=name,
                 schema_overrides=schema_overrides,
                 orient=orient,
                 infer_schema_length=infer_schema_length,
@@ -1029,23 +1031,23 @@ naive plan: (run LazyFrame.explain(optimized=True) to see the optimized plan)
         return self._ldf.describe_plan()
 
     
-    def database_query(self, table) -> str:
+    def database_query(self) -> str:
         def fix_spacing(query_str):
             curr = 0
             str2 = ""
-            for ch in query_str:
-                str2 += ch
+            for (curr_ch, next_ch) in zip(query_str, query_str[1:] + ' '):
+                str2 += curr_ch
                 
-                if ch == "\n":
-                    str2 += "    " * curr
-                elif ch == "(":
-                    curr = curr + 1
-                elif ch == ")":
+                if next_ch == ")":
                     curr = curr - 1
+                if curr_ch == "\n":
+                    str2 += "    " * curr
+                elif curr_ch == "(":
+                    curr = curr + 1
                     
             return str2
         
-        return fix_spacing(self._ldf.database_query(table))
+        return fix_spacing(self._ldf.database_query())
 
     @deprecate_renamed_parameter(
         "common_subplan_elimination", "comm_subplan_elim", version="0.18.9"

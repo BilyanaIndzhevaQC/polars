@@ -103,6 +103,10 @@ impl From<DataFrame> for PyDataFrame {
     clippy::len_without_is_empty
 )]
 impl PyDataFrame {
+    pub fn add_name(&mut self, name: String) {
+        self.df.add_name(name);
+    }
+
     pub fn into_raw_parts(&mut self) -> (usize, usize, usize) {
         // used for polars-lazy python node. This takes the dataframe from underneath of you, so
         // don't use this anywhere else.
