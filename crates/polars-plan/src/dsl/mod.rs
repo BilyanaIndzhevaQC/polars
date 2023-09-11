@@ -31,6 +31,7 @@ mod selector;
 pub mod string;
 #[cfg(feature = "dtype-struct")]
 mod struct_;
+pub mod database;
 
 use std::fmt::Debug;
 use std::sync::Arc;

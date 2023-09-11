@@ -11,6 +11,7 @@ use rayon::option;
 use crate::logical_plan::LogicalPlan::DataFrameScan;
 use crate::prelude::*;
 use crate::utils::{expr_to_leaf_column_names, get_single_leaf};
+use crate::dsl::database::*;
 
 pub(crate) mod aexpr;
 pub(crate) mod alp;
@@ -297,7 +298,7 @@ impl LogicalPlan {
 use rand::{distributions::Alphanumeric, Rng}; 
 
 impl LogicalPlan {
-    pub fn database_query(&self, table: &String) -> SQLNode {
+    pub fn database_query(&self) -> SQLNode {
         use LogicalPlan::*;
 
         // fn random_string() -> String {
@@ -308,7 +309,7 @@ impl LogicalPlan {
         //             .collect()
         // }
 
-        fn vec_expr(expr: &Vec<Expr>) -> (Vec<SQLExpr>, Option<SQLNode>) {
+        fn vector_expr(expr: &Vec<Expr>) -> (Vec<SQLExpr>, Option<SQLNode>) {
             let (vexpr, vnode) : (Vec<_>, Vec<_>)
                         = expr.iter().map(|val| val._database_query()).unzip();
             let node_fold = vnode.into_iter()
@@ -323,7 +324,22 @@ impl LogicalPlan {
             }
         } 
 
-        // fn i
+        fn vector_remove_alias(vexpr: Vec<SQLExpr>) -> Vec<SQLExpr> {
+            vexpr.iter().map(
+                |expr| expr.remove_alias()
+            ).collect::<Vec<SQLExpr>>()
+        }
+
+        fn root_option_node(root_node: Option<SQLNode>, tail_node: SQLNode) -> SQLNode {
+            if let Some(root_node) = root_node {
+                root_node.add_node(tail_node)
+            }
+            else {
+                tail_node
+            }
+        }
+
+        // fn 
 
         // fn sql_vec(expr: &Vec<LogicalPlan>, sep: &str) -> String {
         //     expr.iter().map(|val| val.database_query()).collect::<Vec<String>>().join(sep)
@@ -331,30 +347,32 @@ impl LogicalPlan {
 
         match self {
             DataFrameScan {df, schema, output_schema, projection, selection} => {
-                SQLNode::named_schema_node(schema.clone(), table.to_string())
+                let name = match df.name.clone() {
+                    Some(name) => name,
+                    None => "".to_owned()
+                };
+                
+                SQLNode::named_schema_node(schema.clone(), name)
             },
             Projection {expr, input, schema, options} => {
-                let mut node = input.database_query(table);
+                let mut node = input.database_query();
 
-                let (vexpr, expr_node) = vec_expr(expr);
+                let (vexpr, expr_node) = vector_expr(expr);
                 if !vexpr.is_empty() {
                     let options = SQLSelectOptions {distinct: false};
                     node = node.add_query(SQLQuery::Select{vexpr, options});
                 }
                 
-                if let Some(expr_node) = expr_node {
-                    node = expr_node.add_node(node);
-                }
-                node
+                root_option_node(expr_node, node)
             },
 
             Slice {input, offset, len} => {
-                let node = input.database_query(table);
+                let node = input.database_query();
                 node.add_query(SQLQuery::Fetch(*len)).add_query(SQLQuery::Offset(*offset))
             },
 
             Distinct {input, options} => {
-                let node = input.database_query(table);
+                let node = input.database_query();
                 node.add_query(SQLQuery::Select{
                     vexpr: vec![], 
                     options: SQLSelectOptions {distinct: true}
@@ -362,20 +380,16 @@ impl LogicalPlan {
             },
 
             Selection {input, predicate} => {
-                let mut node = input.database_query(table);
+                let mut node = input.database_query();
                 let (expr, expr_node) = predicate._database_query();
                 
-                if let Some(expr_node) = expr_node {
-                    node = expr_node.add_node(node);
-                }
-
-                node.add_query(SQLQuery::Where(expr.remove_alias()))
+                root_option_node(expr_node, node).add_query(SQLQuery::Where(expr.remove_alias()))
             },
 
             HStack {input, exprs, schema, options} => {
-                let mut node = input.database_query(table);
+                let mut node = input.database_query();
 
-                let (mut vexpr, expr_node) = vec_expr(exprs);
+                let (mut vexpr, expr_node) = vector_expr(exprs);
 
                 let schema = input.schema().unwrap();
                 let names = schema.get_names().clone();
@@ -393,78 +407,58 @@ impl LogicalPlan {
                     });
                 }
                 
-                if let Some(expr_node) = expr_node {
-                    node = expr_node.add_node(node);
-                }
-                node
+                root_option_node(expr_node, node)
             },
 
             LogicalPlan::Aggregate {input, keys, aggs, schema, apply, maintain_order, options} => {
-                let mut node = input.database_query(table);
+                let mut node = input.database_query();
 
-                let (mut vexpr_aggs, expr_node_agg) = vec_expr(aggs);
-                let (mut vexpr_keys, expr_node_keys) = vec_expr(keys);
+                let (mut vexpr_aggs, expr_node_agg) = vector_expr(aggs);
+                let (mut vexpr_keys, expr_node_keys) = vector_expr(keys);
 
                 vexpr_aggs.append(&mut vexpr_keys.clone());
 
-                node = node.add_query(SQLQuery::Select{
+                node = node.add_query(SQLQuery::Select {
                     vexpr: vexpr_aggs, 
                     options: SQLSelectOptions {distinct: false}
                 });
 
-                vexpr_keys = vexpr_keys.iter().map(
-                    |expr| expr.remove_alias()
-                ).collect::<Vec<SQLExpr>>();
+                vexpr_keys = vector_remove_alias(vexpr_keys);
 
-                node = node.add_query(SQLQuery::GroupBy(vexpr_keys.clone()));
+                node = root_option_node(expr_node_agg, node);
+                node = root_option_node(expr_node_keys, node);
                 
-                if let Some(expr_node_agg) = expr_node_agg {
-                    node = expr_node_agg.add_node(node);
-                } 
-
-                if let Some(expr_node_keys) = expr_node_keys {
-                    node = expr_node_keys.add_node(node);
-                } 
-                node
+                node.add_query(SQLQuery::GroupBy(vexpr_keys.clone()))
             },
 
             LogicalPlan::Sort {input, by_column, args} => {
-                let mut node = input.database_query(table);
+                let mut node = input.database_query();
 
-                let (mut vexpr, expr_node) = vec_expr(by_column);
-                vexpr = vexpr.iter().map(
-                    |expr| expr.remove_alias()
-                ).collect::<Vec<SQLExpr>>();
-                
-                node = node.add_query(SQLQuery::OrderBy(vexpr));
-                
-                if let Some(expr_node) = expr_node {
-                    node = expr_node.add_node(node)
-                } 
-                node
+                let (mut vexpr, expr_node) = vector_expr(by_column);
+                vexpr = vector_remove_alias(vexpr);
+                node = root_option_node(expr_node, node);
+
+                let mut queries: Vec<SQLSortQuery> = vec![];
+
+                for i in 0..vexpr.len() {
+                    let options = SQLSortOptions {descending: args.descending[i], nulls_last: args.nulls_last};
+                    queries.push(SQLSortQuery {expr: vexpr[i].clone(), options});
+                }
+
+                node.add_query(SQLQuery::OrderBy(queries))
             },
             LogicalPlan::Join {input_left, input_right, schema, left_on, right_on, options}  => {
-                let mut node_left = input_left.database_query(table);
+                let mut node_left = input_left.database_query();
 
-                let (mut vexpr_left, expr_node_left) = vec_expr(left_on);
-                vexpr_left = vexpr_left.iter().map(
-                    |expr| expr.remove_alias()
-                ).collect::<Vec<SQLExpr>>();
-                
-                if let Some(expr_node_left) = expr_node_left {
-                    node_left = expr_node_left.add_node(node_left);
-                } 
+                let (mut vexpr_left, expr_node_left) = vector_expr(left_on);
+                vexpr_left = vector_remove_alias(vexpr_left);
+                node_left = root_option_node(expr_node_left, node_left);
 
-                let mut node_right = input_right.database_query(table);
+                let mut node_right = input_right.database_query();
                 
-                let (mut vexpr_right, expr_node_right) = vec_expr(right_on);
-                vexpr_right = vexpr_right.iter().map(
-                    |expr| expr.remove_alias()
-                ).collect::<Vec<SQLExpr>>();
-                
-                if let Some(expr_node_right) = expr_node_right {
-                    node_right = expr_node_right.add_node(node_right);
-                } 
+                let (mut vexpr_right, expr_node_right) = vector_expr(right_on);
+                vexpr_right = vector_remove_alias(vexpr_right);                
+                node_right = root_option_node(expr_node_right, node_right);
 
                 let how = match options.args.how {
                     JoinType::Left => SQLJoinType::Left,
@@ -483,9 +477,9 @@ impl LogicalPlan {
                         left_on: vexpr_left,
                         right_on: vexpr_right,
                         options: SQLJoinOptions {how: how}
-                    });
+                });
 
-                    node_join.add_node(node_left)
+                node_join.add_node(node_left)
             },
             _ => panic!("LogicalPlan cannot be converted to database query.")
             

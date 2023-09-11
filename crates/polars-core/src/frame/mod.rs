@@ -141,6 +141,7 @@ pub enum UniqueKeepStrategy {
 #[derive(Clone)]
 pub struct DataFrame {
     pub(crate) columns: Vec<Series>,
+    pub name: Option<String>
 }
 
 impl DataFrame {
@@ -305,6 +306,7 @@ impl DataFrame {
 
         Ok(DataFrame {
             columns: series_cols,
+            name: None
         })
     }
 
@@ -410,7 +412,7 @@ impl DataFrame {
     /// It is the callers responsibility to uphold the contract of all `Series`
     /// having an equal length, if not this may panic down the line.
     pub const fn new_no_checks(columns: Vec<Series>) -> DataFrame {
-        DataFrame { columns }
+        DataFrame { columns, name: None }
     }
 
     /// Aggregate all chunks to contiguous memory.
@@ -3422,6 +3424,10 @@ impl DataFrame {
             }
         }
         DataFrame::new(new_cols)
+    }
+
+    pub fn add_name(&mut self, name: String) {
+        self.name = Some(name);
     }
 }
 
