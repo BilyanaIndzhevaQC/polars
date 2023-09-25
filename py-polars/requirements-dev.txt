@@ -31,3 +31,7 @@ pytest-xdist==3.3.1
 
 # Stub files
 pandas-stubs
+
+# python-pip
+# pybind 
+# turbodbc==4.7

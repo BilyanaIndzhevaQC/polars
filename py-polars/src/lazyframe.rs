@@ -18,6 +18,7 @@ use polars_core::frame::explode::MeltArgs;
 use polars_core::frame::hash_join::JoinValidation;
 use polars_core::frame::UniqueKeepStrategy;
 use polars_core::prelude::*;
+use polars_plan::prelude::database::{DBVersion, DBDisplay};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
@@ -322,8 +323,8 @@ impl PyLazyFrame {
         self.ldf.describe_plan()
     }
 
-    fn database_query(&self) -> String {    
-        self.ldf.database_query()
+    fn database_query(&self, db_version: String) -> String {    
+        self.ldf.database_query().db_display(DBVersion::from_string(db_version))
     }
     
     fn describe_optimized_plan(&self) -> PyResult<String> {

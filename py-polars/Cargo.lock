@@ -1694,6 +1694,7 @@ dependencies = [
  "polars-core",
  "polars-error",
  "polars-lazy",
+ "polars-plan",
  "pyo3",
  "pyo3-built",
  "serde_json",

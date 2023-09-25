@@ -351,41 +351,40 @@ impl Operator {
 }
 
 impl AggExpr {
-    pub fn _database_query(&self) -> (SQLAggExpr, Option<SQLNode>) {
+    pub fn _database_query(&self) -> (DBAggExpr, Option<DBNode>) {
         match self {
             AggExpr::Min{input, propagate_nans} => {
                 let (expr, node) = input._database_query();
-                (SQLAggExpr::Min{input: Box::new(expr), propagate_nans: *propagate_nans},
+                (DBAggExpr::Min{input: Box::new(expr), propagate_nans: *propagate_nans},
                     node)
             },
             AggExpr::Max{input, propagate_nans} => {
                 let (expr, node) = input._database_query();
-                (SQLAggExpr::Max{input: Box::new(expr), propagate_nans: *propagate_nans},
+                (DBAggExpr::Max{input: Box::new(expr), propagate_nans: *propagate_nans},
                     node)
             },
             AggExpr::Mean(input) => {
                 let (expr, node) = input._database_query();
-                (SQLAggExpr::Mean(Box::new(expr)), node)
+                (DBAggExpr::Mean(Box::new(expr)), node)
             },
             AggExpr::Sum(input) => {
                 let (expr, node) = input._database_query();
-                (SQLAggExpr::Sum(Box::new(expr)), node)
+                (DBAggExpr::Sum(Box::new(expr)), node)
             },
             AggExpr::Count(input) => {
                 let (expr, node) = input._database_query();
-                (SQLAggExpr::Count(Box::new(expr)), node)
+                (DBAggExpr::Count(Box::new(expr)), node)
             },
             AggExpr::Median(input) =>  {
                 let (expr, node) = input._database_query();
-                (SQLAggExpr::Median(Box::new(expr)), node)
+                (DBAggExpr::Median(Box::new(expr)), node)
             },
             AggExpr::First(input) =>  {
                 let (expr, node) = input._database_query();
-                (SQLAggExpr::First(Box::new(expr)), node)
+                (DBAggExpr::First(Box::new(expr)), node)
             },
             
             // NUnique(Box<Expr>),
-            // First(Box<Expr>),
             // Last(Box<Expr>),
             // Implode(Box<Expr>),
             // Quantile {
@@ -405,13 +404,13 @@ impl AggExpr {
 
 
 impl Expr {
-    pub fn _database_query(&self) -> (SQLExpr, Option<SQLNode>) {
-        fn vector_expr(expr: &Vec<Expr>) -> (Vec<SQLExpr>, Option<SQLNode>) {
+    pub fn _database_query(&self) -> (DBExpr, Option<DBNode>) {
+        fn vector_expr(expr: &Vec<Expr>) -> (Vec<DBExpr>, Option<DBNode>) {
             let (vexpr, vnode) : (Vec<_>, Vec<_>)
                         = expr.iter().map(|val| val._database_query()).unzip();
             let node_fold = vnode.into_iter()
                                           .flatten()
-                                          .fold(SQLNode::empty_dummy_node().into(), |curr : SQLNode, new_node: SQLNode| curr.add_node(new_node));
+                                          .fold(DBNode::empty_dummy_node().into(), |curr : DBNode, new_node: DBNode| curr.add_node(new_node));
             
             if node_fold.is_empty() {
                 (vexpr, None)
@@ -421,13 +420,13 @@ impl Expr {
             }
         } 
 
-        fn vector_remove_alias(vexpr: Vec<SQLExpr>) -> Vec<SQLExpr> {
+        fn vector_remove_alias(vexpr: Vec<DBExpr>) -> Vec<DBExpr> {
             vexpr.iter().map(
                 |expr| expr.remove_alias()
-            ).collect::<Vec<SQLExpr>>()
+            ).collect::<Vec<DBExpr>>()
         }
 
-        fn root_option_node(root_node: Option<SQLNode>, tail_node: SQLNode) -> SQLNode {
+        fn root_option_node(root_node: Option<DBNode>, tail_node: DBNode) -> DBNode {
             if let Some(root_node) = root_node {
                 root_node.add_node(tail_node)
             }
@@ -439,13 +438,13 @@ impl Expr {
         match self {
             Expr::Alias(expr, new_name) => {
                 let (sql_expr, sql_node) = expr._database_query();
-                (SQLExpr::Alias(Box::new(sql_expr), new_name.clone()), sql_node)
+                (DBExpr::Alias(Box::new(sql_expr), new_name.clone()), sql_node)
             },
             Expr::Column(name) => {
-                (SQLExpr::Column(name.clone()), None)
+                (DBExpr::Column(name.clone()), None)
             },
             Expr::Literal(literal) => {
-                (SQLExpr::Literal(literal.clone()), None)
+                (DBExpr::Literal(literal.clone()), None)
             },
             Expr::BinaryExpr {left, op, right} => {
                 let (left_sql_expr, left_sql_node) = left._database_query();
@@ -462,12 +461,12 @@ impl Expr {
                     right_sql_node
                 }; 
 
-                let expr = SQLExpr::BinaryExpr {left:Box::new(left_sql_expr), op:*op, right:Box::new(right_sql_expr)};
+                let expr = DBExpr::BinaryExpr {left:Box::new(left_sql_expr), op:*op, right:Box::new(right_sql_expr)};
                 (expr, sql_node)
             }
             Expr::Agg(aggExpr) => {
                 let (sql_aexpr, sql_node) = aggExpr._database_query();
-                (SQLExpr::Agg(sql_aexpr), sql_node)
+                (DBExpr::Agg(sql_aexpr), sql_node)
             },
             Expr::Sort {
                 expr,
@@ -475,9 +474,10 @@ impl Expr {
             } => {
                 let (mut expr, expr_node) = expr._database_query();
                 
-                let options: SQLSortOptions = SQLSortOptions {descending: options.descending, nulls_last: options.nulls_last};
-                let query = vec![SQLSortQuery {expr: expr.remove_alias(), options}];
-                let node = SQLNode::query_dummy_node(SQLQuery::OrderBy(query)); 
+                let mut options: DBSortOptions = DBSortOptions {descending: options.descending, nulls_last: options.nulls_last};
+
+                let query = vec![DBSortQuery {expr: expr.remove_alias(), options}];
+                let node = DBNode::query_dummy_node(DBQuery::OrderBy(query)); 
 
                 (expr, Some(root_option_node(expr_node, node)))
             },
@@ -492,14 +492,14 @@ impl Expr {
                 vexpr = vector_remove_alias(vexpr);
 
 
-                let mut queries: Vec<SQLSortQuery> = vec![];
+                let mut queries: Vec<DBSortQuery> = vec![];
 
                 for i in 0..vexpr.len() {
-                    let options = SQLSortOptions {descending: descending[i], nulls_last: false};
-                    queries.push(SQLSortQuery {expr: vexpr[i].clone(), options});
+                    let options = DBSortOptions {descending: descending[i], nulls_last: false};
+                    queries.push(DBSortQuery {expr: vexpr[i].clone(), options});
                 }
 
-                let mut node = SQLNode::query_dummy_node(SQLQuery::OrderBy(queries));
+                let mut node = DBNode::query_dummy_node(DBQuery::OrderBy(queries));
                 node = root_option_node(option_node, node);
                 (expr, Some(root_option_node(expr_node, node)))
 
@@ -511,7 +511,7 @@ impl Expr {
                 let (mut expr, expr_node) = input._database_query();
                 let (by_expr, by_expr_node) = by._database_query();
                 
-                let mut node = SQLNode::query_dummy_node(SQLQuery::Where(by_expr.remove_alias()));
+                let mut node = DBNode::query_dummy_node(DBQuery::Where(by_expr.remove_alias()));
                 node = root_option_node(by_expr_node, node);
                 (expr, Some(root_option_node(expr_node, node)))
             },

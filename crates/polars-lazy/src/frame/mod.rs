@@ -41,6 +41,7 @@ use polars_plan::global::FETCH_ROWS;
 #[cfg(any(feature = "ipc", feature = "parquet", feature = "csv"))]
 use polars_plan::logical_plan::collect_fingerprints;
 use polars_plan::logical_plan::optimize;
+use polars_plan::prelude::database::DBNode;
 use polars_plan::utils::expr_to_leaf_column_names;
 use smartstring::alias::String as SmartString;
 
@@ -198,8 +199,8 @@ impl LazyFrame {
         self.logical_plan.describe()
     }
 
-    pub fn database_query(&self) -> String {
-        format!("{}", self.logical_plan.database_query())
+    pub fn database_query(&self) -> DBNode {
+        self.logical_plan.database_query()
     }
 
     /// Return a String describing the optimized logical plan.

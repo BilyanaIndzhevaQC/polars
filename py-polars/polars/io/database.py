@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import polars as pl
 
+import sqlite3
+
 import re
 import sys
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, Iterable, Sequence, TypedDict
+from typing import TYPE_CHECKING, Any, Iterable, Sequence, TypedDict, Union
 
 from polars.convert import from_arrow
 from polars.utils.deprecation import (
@@ -459,23 +461,32 @@ def _open_adbc_connection(connection_uri: str) -> Any:
 
     return adbc_driver.connect(connection_uri)
 
-import sqlite3
 
 class DBConnection:
-    connection_uri: str
-    table: str
+    db_versionS = [
+        "MSSQL", "SQLITE"
+        ]
     
+    db_version: str #MSSQL / SQLITE
+    # connection_cursor: auto
+    table: str
     lazyframe: LazyFrame
+    
     
     def __init__(
         self,
-        connection_uri: str | None = None,
+        connection_cursor,
         table: str | None = None,
         *,
+        db_version: str,
         lazyframe: LazyFrame | None = None,
     ) :
-        self.connection_uri = connection_uri
+        self.connection_cursor = connection_cursor
         self.table = table
+        self.db_version = db_version
+        
+        if not self.db_version in self.db_versionS:
+            raise ValueError("This SQL version is not supported yet.")
 
         if lazyframe is None:
             self.connect()
@@ -485,54 +496,95 @@ class DBConnection:
     def __get_schema(
         self
     ) -> SchemaDefinition :
-        query = f"""
-        SELECT *
-        FROM {self.table}
-        LIMIT 0 OFFSET 0
-        """
+        if self.db_version == "MSSQL":
+            query = f""" SELECT TOP 1 * FROM {self.table} """
+        elif self.db_version == "SQLITE":
+            query = f""" SELECT * FROM {self.table} LIMIT 1"""
+        
+        res = self.connection_cursor.execute(query)
+        column_names = tuple([description[0] for description in res.description])
+        dataframe = pl.DataFrame(dict(zip(column_names, res.fetchone())))
+        
+        return dataframe.schema
     
-        dataframe = pl.read_database_uri(uri=self.connection_uri, query=query)
-        return pl.LazyFrame(schema=dataframe.schema, name=self.table)
-
-    def connect(self):
-        self.lazyframe = self.__get_schema()
     
-    def collect(self):
-        query = self.lazyframe.database_query()
+    def __collect_data(self):
+        query = self.lazyframe.database_query(self.db_version)
         self.lazyframe.collect()
         
-        # sqlite3 implementation
-        database = self.connection_uri.split("/")[-1]
+        res = self.connection_cursor.execute(query)
+        column_names = tuple([description[0] for description in res.description])
         
-        con = sqlite3.connect(database)
-        cur = con.cursor()
+        return (column_names, res.fetchall());
+    
+    
+    def __get_data(self):
+        (column_names, rows) = self.__collect_data()
         
-        res = cur.execute(query)
-        rows = [tuple([description[0] for description in res.description])] + res.fetchall()
+        rows = [column_names] + rows
         
         max_word = max([max(map(len, map(str, row))) for row in rows])
         query_string = "\n".join([" ".join([str(word).ljust(max_word + 2) for word in row]) for row in rows])
-
+        
         return query_string
     
+    
+    def collect(self):
+        return DBConnection(connection_cursor=self.connection_cursor, table=self.table, db_version=self.db_version, lazyframe=self.lazyframe.collect())
+
+
+    def connect(self):
+        self.lazyframe = pl.LazyFrame(schema=self.__get_schema(), name=self.table)
+   
+    
+    def print_data(self):
+        print(self.__get_data())
+        
+    
+    def load_lazyframe(self):
+        (column_names, rows) = self.__collect_data()
+        columns = list(map(list, zip(*rows)))
+        return pl.LazyFrame(schema=column_names, data=columns)
+    
+
+    def load_dataframe(self):
+        (column_names, rows) = self.__collect_data()
+        columns = list(map(list, zip(*rows)))
+        # return pl.DataFrame(dict(zip(column_names, columns)))
+        return pl.DataFrame(schema=column_names, data=columns)
+        
+        
     def print_query(self):
-        query = self.lazyframe.database_query()
+        query = self.lazyframe.database_query(self.db_version)
         print("\nQUERY:\n" + query + "\n")
    
    
     def __getattr__(self, name):
         def wrapper(*args, **kwargs):
             lazyframe = getattr(self.lazyframe, name)(*args, **kwargs)
-            return DBConnection(connection_uri=self.connection_uri, table=self.table, lazyframe=lazyframe)
+            return DBConnection(connection_cursor=self.connection_cursor, table=self.table, db_version=self.db_version, lazyframe=lazyframe)
         
         return wrapper
         
 
 def scan_database(
-    connection_uri = None,
-    table: str = None,
+    connection_uri: str | None = None,
+    connection_string: str | None = None,
+    table: str | None = None,
 ) -> DBConnection:
-    return pl.DBConnection(connection_uri=connection_uri, table=table)
+    if not (connection_uri is None) ^ (connection_string is None):
+        print(f"{connection_uri},\n {connection_string}")
+        raise ValueError("Exactly one of connection options should be set.")
+    elif connection_string is None:
+        database = connection_uri.split("/")[-1]
+        connection = sqlite3.connect(database=database)
+        db_version = "SQLITE"
+    else:
+        import turbodbc as tdbc
+        connection = tdbc.connect(connection_string=connection_string)
+        db_version = "MSSQL"
+        
+    return pl.DBConnection(connection_cursor=connection.cursor(), db_version=db_version, table=table)
 
 
 
