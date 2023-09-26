@@ -463,12 +463,12 @@ def _open_adbc_connection(connection_uri: str) -> Any:
 
 
 class DBConnection:
-    db_versionS = [
+    db_versions = [
         "MSSQL", "SQLITE"
-        ]
+    ]
     
-    db_version: str #MSSQL / SQLITE
-    # connection_cursor: auto
+    db_version: str
+    # connection_cursor
     table: str
     lazyframe: LazyFrame
     
@@ -485,7 +485,7 @@ class DBConnection:
         self.table = table
         self.db_version = db_version
         
-        if not self.db_version in self.db_versionS:
+        if not self.db_version in self.db_versions:
             raise ValueError("This SQL version is not supported yet.")
 
         if lazyframe is None:
@@ -508,14 +508,25 @@ class DBConnection:
         return dataframe.schema
     
     
-    def __collect_data(self):
+    def __collect_result(self):
         query = self.lazyframe.database_query(self.db_version)
         self.lazyframe.collect()
         
         res = self.connection_cursor.execute(query)
+        
+        return res
+        
+    
+    def __collect_data(self):
+        res = self.__collect_result()
         column_names = tuple([description[0] for description in res.description])
         
-        return (column_names, res.fetchall());
+        return (column_names, res.fetchall())
+    
+    
+    def __collect_arrow_table(self):
+        res = self.__collect_result()
+        return res.fetchallarrow();
     
     
     def __get_data(self):
@@ -535,28 +546,35 @@ class DBConnection:
 
     def connect(self):
         self.lazyframe = pl.LazyFrame(schema=self.__get_schema(), name=self.table)
-   
-    
-    def print_data(self):
-        print(self.__get_data())
         
     
     def load_lazyframe(self):
-        (column_names, rows) = self.__collect_data()
-        columns = list(map(list, zip(*rows)))
-        return pl.LazyFrame(schema=column_names, data=columns)
+        if self.db_version == "MSSQL":
+            arrow_table = self.__collect_arrow_table()
+            return pl.from_arrow(arrow_table).lazy()
+        elif self.db_version == "SQLITE":
+            (column_names, rows) = self.__collect_data()
+            columns = list(map(list, zip(*rows)))
+            return pl.LazyFrame(schema=column_names, data=columns)
     
 
     def load_dataframe(self):
-        (column_names, rows) = self.__collect_data()
-        columns = list(map(list, zip(*rows)))
-        # return pl.DataFrame(dict(zip(column_names, columns)))
-        return pl.DataFrame(schema=column_names, data=columns)
+        if self.db_version == "MSSQL":
+            arrow_table = self.__collect_arrow_table()
+            return pl.from_arrow(arrow_table)
+        elif self.db_version == "SQLITE":
+            (column_names, rows) = self.__collect_data()
+            columns = list(map(list, zip(*rows)))
+            return pl.DataFrame(schema=column_names, data=columns)
         
         
     def print_query(self):
         query = self.lazyframe.database_query(self.db_version)
-        print("\nQUERY:\n" + query + "\n")
+        print(f"QUERY:\n{query}\n")
+
+    
+    def print_data(self):
+        print(f"DATA:\n{self.__get_data()}\n")
    
    
     def __getattr__(self, name):
@@ -568,8 +586,8 @@ class DBConnection:
         
 
 def scan_database(
-    connection_uri: str | None = None,
-    connection_string: str | None = None,
+    connection_uri: str | None = None,    #for sqlite
+    connection_string: str | None = None, #for mssql
     table: str | None = None,
 ) -> DBConnection:
     if not (connection_uri is None) ^ (connection_string is None):

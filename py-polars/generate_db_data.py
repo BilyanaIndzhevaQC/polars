@@ -18,7 +18,7 @@ connection = tdbc.connect(connection_string=connection_string, turbodbc_options=
 cur = connection.cursor()
 
 name_length = 10
-row_number = 100000
+row_number = 100
 
 null_percentage = 10
 
@@ -28,12 +28,15 @@ max_float = pow(2, 13) - 1
 min_date = "1/1/2000"
 max_date = "1/1/2023"
 
-# query = lambda lf: lf.select("int_null")
-query = lambda lf: lf.with_columns(pl.col("int_null").alias("a"))
-# long_query = lambda lf: lf.with_columns((pl.col("int_null") + pl.lit(1)).alias("sum")).unique().filter((pl.col("sum") > 3) & (pl.lit(2) > 1)).groupby("int_null2").min().sort(pl.col("sum")),
-long_query = lambda lf: lf.select(pl.col("int_null"), pl.col("int_null2") + pl.lit(1)).group_by("int_null2").agg(pl.col("int_null").min()).unique().filter(pl.col("int_null2") > 3)
+# query = lambda lf: lf
+# query = lambda lf: lf.select(pl.col(pl.INTEGER_DTYPES))
+# query = lambda lf: lf.select(pl.all().exclude(["bit_null", "bit_null2", "bit_notnull"])).group_by("int_null").max()
+# query = lambda lf: lf.sort(by="int_null")
+# query = lambda lf: lf.filter(pl.col("int_null2") > 3)
+# query = lambda lf: lf.select(pl.all().exclude(["bit_null", "bit_null2", "bit_notnull"]), (pl.col("int_null") + pl.lit(1)).alias("sum")).unique().filter((pl.col("int_null") > 3)).group_by("int_null2").min().sort(pl.col("int_null2"))
 
-table10k = "table1m"
+table1k = "table1k"
+table10k = "table10k"
 table100k = "first_table"
 table1m = "table1m"
 
@@ -186,10 +189,10 @@ def check_table_equality(scan_dataframe, read_dataframe) -> bool:
 
 def pipeline(table, schema, connection_string, connection_string_uri, query) -> None:
     # (table, schema) = create_table(table=table, schema=schema)
-    # logging.info(f"Table {table} created.")
+    # print(f"Table {table} created.")
     
     # generate_rows(table, schema, row_number)
-    # logging.info(f"Generated {row_number} rows for {table}.")
+    # print(f"Generated {row_number} rows for {table}.")
 
     (scan_query_time, scan_lazyframe) = time_scan_query(query, table, connection_string)
     print(f"Database query's time is {scan_query_time}.")
@@ -203,9 +206,9 @@ def pipeline(table, schema, connection_string, connection_string_uri, query) -> 
     # row_count(table, schema)
     
     # delete_table(table)
-    # logging.info(f"Table {table} deleted.")
+    # print(f"Table {table} deleted.")
 
     
 
-pipeline(table10k, global_schema, connection_string, connection_string_uri, long_query)
+pipeline(table1k, global_schema, connection_string, connection_string_uri, query)
 

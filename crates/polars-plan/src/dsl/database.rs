@@ -268,49 +268,6 @@ pub enum DBExpr {
         op: Operator,
         right: Box<DBExpr>,
     },
-
-    // Take {
-    //     expr: Box<Expr>,
-    //     idx: Box<Expr>,
-    // },
-
-    // /// A ternary operation
-    // /// if true then "foo" else "bar"
-    // Ternary {
-    //     predicate: Box<Expr>,
-    //     truthy: Box<Expr>,
-    //     falsy: Box<Expr>,
-    // },
-    // Function {
-    //     /// function arguments
-    //     input: Vec<Expr>,
-    //     /// function to apply
-    //     function: FunctionExpr,
-    //     options: FunctionOptions,
-    // },
-    // Filter {
-    //     input: Box<Expr>,
-    //     by: Box<Expr>,
-    // },
-    // /// See postgres window functions
-    // Window {
-    //     /// Also has the input. i.e. avg("foo")
-    //     function: Box<Expr>,
-    //     partition_by: Vec<Expr>,
-    //     order_by: Option<Box<Expr>>,
-    //     options: WindowOptions,
-    // },
-    // Wildcard,
-    // AnonymousFunction {
-    //     /// function arguments
-    //     input: Vec<Expr>,
-    //     /// function to apply
-    //     function: SpecialEq<Arc<dyn SeriesUdf>>,
-    //     /// output dtype of the function
-    //     #[cfg_attr(feature = "serde", serde(skip))]
-    //     output_type: GetOutput,
-    //     options: FunctionOptions,
-    // },
 }
 
 impl DBDisplay for DBExpr {
@@ -410,7 +367,6 @@ pub enum DBQuery {
     Where(DBExpr),
     GroupBy(Vec<DBExpr>),
     Having(DBExpr),
-    // OrderBy(Vec<DBExpr>),
     OrderBy(Vec<DBSortQuery>),
     Fetch(u32),
     Offset(i64),

@@ -113,7 +113,7 @@ def test_database_expr_agg() -> None:
         # lambda lf: lf.select(pl.col(intColumn).median()),
         lambda lf: lf.select(pl.col(intColumn).mean()),
         # lambda lf: lf.select(pl.col(intColumn).count()), #doesnt count nulls
-        # lambda lf: lf.select(pl.col(intColumn).first()), #works in groupby
+        # lambda lf: lf.select(pl.col(intColumn).first()), #works in groupby for sqlite
         # lambda lf: lf.select(pl.col(intColumn).last()),
         lambda lf: lf.select(pl.col(intColumn).sum()),
     ]
