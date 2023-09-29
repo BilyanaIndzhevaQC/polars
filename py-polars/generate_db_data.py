@@ -29,7 +29,7 @@ min_date = "1/1/2000"
 max_date = "1/1/2023"
 
 # query = lambda lf: lf
-# query = lambda lf: lf.select(pl.col(pl.INTEGER_DTYPES))
+query = lambda lf: lf.select("int_null")
 # query = lambda lf: lf.select(pl.all().exclude(["bit_null", "bit_null2", "bit_notnull"])).group_by("int_null").max()
 # query = lambda lf: lf.sort(by="int_null")
 # query = lambda lf: lf.filter(pl.col("int_null2") > 3)
@@ -170,7 +170,7 @@ def time_read_query(query, table, connection_string) -> (time, pl.DataFrame):
     begin_time = time.time()
     
     query_temp = f"SELECT * FROM {table}"
-    dataframe = pl.read_database_uri(query_temp, connection_string)
+    dataframe = pl.read_database_uri(query_temp, connection_string).lazy()
     dataframe = query(dataframe)
     
     end_time = time.time()
@@ -210,5 +210,5 @@ def pipeline(table, schema, connection_string, connection_string_uri, query) -> 
 
     
 
-pipeline(table1k, global_schema, connection_string, connection_string_uri, query)
+pipeline(table1m, global_schema, connection_string, connection_string_uri, query)
 
